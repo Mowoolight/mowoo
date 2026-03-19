@@ -318,17 +318,6 @@
   loadAssets()
 </script>
 
-<!-- Initial loading overlay -->
-{#if loading}
-  <div class="fixed inset-0 z-[100] bg-bgcolor/80 backdrop-blur-sm flex items-center justify-center">
-    <div class="bg-darkbg border border-darkborderc rounded-2xl p-8 flex flex-col items-center gap-4 shadow-2xl min-w-[240px]">
-      <div class="w-12 h-12 border-4 border-darkborderc border-t-blue-500 rounded-full animate-spin"></div>
-      <p class="text-textcolor font-semibold">{language.playground.inlayImageGallery}</p>
-      <p class="text-textcolor2 text-sm">{language.playground.inlayLoadingMore}</p>
-    </div>
-  </div>
-{/if}
-
 <h2 class="text-4xl text-textcolor mt-6 font-black">{language.playground.inlayImageGallery}</h2>
 
 <!-- Sticky header -->
@@ -392,8 +381,12 @@
   {/if}
 </header>
 
-<!-- Empty state -->
-{#if !loading && filteredItems.length === 0}
+{#if loading}
+  <div class="flex flex-col items-center justify-center py-20 gap-4">
+    <div class="w-12 h-12 border-4 border-darkborderc border-t-blue-500 rounded-full animate-spin"></div>
+    <p class="text-textcolor2 text-sm">{language.playground.inlayLoadingMore}</p>
+  </div>
+{:else if filteredItems.length === 0}
   <div class="text-center py-20 text-textcolor2">
     <p class="text-lg">{language.playground.inlayEmpty}</p>
     <p class="text-sm mt-2">{language.playground.inlayImageGalleryEmptyDesc}</p>
