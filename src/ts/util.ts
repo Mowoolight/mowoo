@@ -177,14 +177,7 @@ function readFileAsUint8Array(file: File) {
 }
 
 export async function changeFullscreen(){
-    const db = getDatabase()
-    const isFull = await appWindow.isFullscreen()
-    if(db.fullScreen && (!isFull)){
-        await appWindow.setFullscreen(true)
-    }
-    if((!db.fullScreen) && (isFull)){
-        await appWindow.setFullscreen(false)
-    }
+    // Fullscreen control requires Tauri; no-op in Node-only mode
 }
 
 export async function getCustomBackground(db:string){

@@ -9,6 +9,7 @@ import {
     removeInlayAsset,
     setInlayAsset,
     writeInlayImage,
+    __resetInlayStorageForTest,
 } from '../inlays'
 
 //#region module mocks
@@ -29,25 +30,41 @@ vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: a
     return el
 })
 
-const store = new Map<string, unknown>()
+const { nodeStorageMap, inlayMetaMap } = vi.hoisted(() => ({
+    nodeStorageMap: new Map<string, Uint8Array>(),
+    inlayMetaMap: new Map<string, any>(),
+}))
 
-vi.mock('localforage', () => ({
-    default: {
-        createInstance: () => ({
-            getItem: vi.fn(async (key: string) => store.get(key) ?? null),
-            setItem: vi.fn(async (key: string, value: unknown) => {
-                store.set(key, value)
-            }),
-            removeItem: vi.fn(async (key: string) => {
-                store.delete(key)
-            }),
-            iterate: vi.fn(async (cb: (value: unknown, key: string) => void) => {
-                for (const [key, value] of store) {
-                    cb(value, key)
-                }
-            }),
-        }),
-    },
+vi.mock('src/ts/storage/nodeStorage', () => {
+    class MockNodeStorage {
+        authChecked = true
+        async setItem(key: string, value: Uint8Array) {
+            nodeStorageMap.set(key, value)
+        }
+        async getItem(key: string) {
+            return nodeStorageMap.get(key) ?? null
+        }
+        async removeItem(key: string) {
+            nodeStorageMap.delete(key)
+        }
+        async keys(prefix = '') {
+            const ks = [...nodeStorageMap.keys()]
+            return prefix ? ks.filter(k => k.startsWith(prefix)) : ks
+        }
+        listItem = this.keys
+    }
+    return { NodeStorage: MockNodeStorage }
+})
+
+vi.mock('src/ts/process/files/inlayMeta', () => ({
+    getInlayMeta: vi.fn(async (id: string) => inlayMetaMap.get(id) ?? null),
+    setInlayMeta: vi.fn(async (id: string, meta: any) => { inlayMetaMap.set(id, meta) }),
+    removeInlayMeta: vi.fn(async (id: string) => { inlayMetaMap.delete(id) }),
+    buildInlayMeta: vi.fn((existing: any) => ({
+        createdAt: existing?.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+    })),
+    listInlayMetaEntries: vi.fn(async () => [...inlayMetaMap.entries()]),
 }))
 
 vi.mock('uuid', () => ({
@@ -90,7 +107,9 @@ function makeImage(w: number, h: number): HTMLImageElement {
 
 beforeEach(() => {
     vi.clearAllMocks()
-    store.clear()
+    nodeStorageMap.clear()
+    inlayMetaMap.clear()
+    __resetInlayStorageForTest()
 })
 
 describe('setInlayAsset', () => {
@@ -106,7 +125,9 @@ describe('setInlayAsset', () => {
 
         await setInlayAsset('asset-1', asset)
 
-        expect(store.get('asset-1')).toBe(asset)
+        const stored = await getInlayAsset('asset-1')
+        expect(stored).toMatchObject({ ext: 'png', name: 'test.png', type: 'image', height: 100, width: 100 })
+        expect(typeof stored!.data).toBe('string')
     })
 
     test('overwrites an existing asset with the same id', async () => {
@@ -130,7 +151,8 @@ describe('setInlayAsset', () => {
         await setInlayAsset('id-1', first)
         await setInlayAsset('id-1', second)
 
-        expect((store.get('id-1') as InlayAsset)).toMatchObject({
+        const stored = await getInlayAsset('id-1')
+        expect(stored).toMatchObject({
             height: 20,
             name: 'second.png',
             type: 'image',
@@ -155,7 +177,7 @@ describe('getInlayAsset', () => {
             name: 'blob-asset.png',
             type: 'image',
         }
-        store.set('blob-id', asset)
+        await setInlayAsset('blob-id', asset)
 
         const result = await getInlayAsset('blob-id')
 
@@ -173,7 +195,7 @@ describe('getInlayAsset', () => {
             name: 'string-asset.png',
             type: 'image',
         }
-        store.set('str-id', asset)
+        await setInlayAsset('str-id', asset)
 
         const result = await getInlayAsset('str-id')
         expect(result!.data).toBe(b64)
@@ -196,13 +218,13 @@ describe('getInlayAssetBlob', () => {
             name: 'blob.png',
             type: 'image',
         }
-        store.set('blob-id', asset)
+        await setInlayAsset('blob-id', asset)
 
         const result = await getInlayAssetBlob('blob-id')
         expect(result!.data).toBeInstanceOf(Blob)
     })
 
-    test('migrates string data to Blob and updates storage', async () => {
+    test('migrates string data to Blob', async () => {
         const b64 = 'data:image/png;base64,aGVsbG8='
         const asset: InlayAsset = {
             data: b64,
@@ -212,13 +234,14 @@ describe('getInlayAssetBlob', () => {
             name: 'legacy.png',
             type: 'image',
         }
-        store.set('legacy-id', asset)
+        await setInlayAsset('legacy-id', asset)
 
         const result = await getInlayAssetBlob('legacy-id')
         expect(result!.data).toBeInstanceOf(Blob)
 
-        const updated = store.get('legacy-id') as InlayAsset
-        expect(updated.data).toBeInstanceOf(Blob)
+        // After migration, subsequent blob fetch also returns Blob
+        const result2 = await getInlayAssetBlob('legacy-id')
+        expect(result2!.data).toBeInstanceOf(Blob)
     })
 })
 
@@ -245,8 +268,8 @@ describe('listInlayAssets', () => {
             name: 'b.mp3',
             type: 'audio',
         }
-        store.set('id-a', asset1)
-        store.set('id-b', asset2)
+        await setInlayAsset('id-a', asset1)
+        await setInlayAsset('id-b', asset2)
 
         const result = await listInlayAssets()
         expect(result).toMatchObject([
@@ -271,7 +294,7 @@ describe('postInlayAsset', () => {
         })
         expect(result).toBe('test-uuid-1234')
 
-        const stored = store.get('test-uuid-1234') as InlayAsset
+        const stored = await getInlayAssetBlob('test-uuid-1234')
         expect(stored).toMatchObject({
             data: expect.any(Blob),
             ext: 'mp3',
@@ -288,7 +311,7 @@ describe('postInlayAsset', () => {
         })
         expect(result).toBe('test-uuid-1234')
 
-        const stored = store.get('test-uuid-1234') as InlayAsset
+        const stored = await getInlayAssetBlob('test-uuid-1234')
         expect(stored).toMatchObject({
             data: expect.any(Blob),
             ext: 'webm',
@@ -302,7 +325,9 @@ describe('postInlayAsset', () => {
             fc.asyncProperty(
                 fc.string({ minLength: 1, maxLength: 10 }).filter((ext) => !allSupportedExts.includes(ext as any)),
                 async (ext) => {
-                    store.clear()
+                    nodeStorageMap.clear()
+                    inlayMetaMap.clear()
+                    __resetInlayStorageForTest()
                     const result = await postInlayAsset({
                         name: `file.${ext}`,
                         data: new Uint8Array([0x00]),
@@ -316,15 +341,17 @@ describe('postInlayAsset', () => {
     test('routes audio extensions to audio type', async () => {
         await fc.assert(
             fc.asyncProperty(fc.constantFrom(...supportedAudioExts), async (ext) => {
-                store.clear()
+                nodeStorageMap.clear()
+                inlayMetaMap.clear()
+                __resetInlayStorageForTest()
                 const result = await postInlayAsset({
                     name: `sound.${ext}`,
                     data: new Uint8Array([0x00]),
                 })
                 expect(result).not.toBeNull()
-                const stored = store.get(result!) as InlayAsset
-                expect(stored.type).toBe('audio')
-                expect(stored.ext).toBe(ext)
+                const stored = await getInlayAssetBlob(result!)
+                expect(stored!.type).toBe('audio')
+                expect(stored!.ext).toBe(ext)
             }),
         )
     })
@@ -332,15 +359,17 @@ describe('postInlayAsset', () => {
     test('routes video extensions to video type', async () => {
         await fc.assert(
             fc.asyncProperty(fc.constantFrom(...supportedVideoExts), async (ext) => {
-                store.clear()
+                nodeStorageMap.clear()
+                inlayMetaMap.clear()
+                __resetInlayStorageForTest()
                 const result = await postInlayAsset({
                     name: `clip.${ext}`,
                     data: new Uint8Array([0x00]),
                 })
                 expect(result).not.toBeNull()
-                const stored = store.get(result!) as InlayAsset
-                expect(stored.type).toBe('video')
-                expect(stored.ext).toBe(ext)
+                const stored = await getInlayAssetBlob(result!)
+                expect(stored!.type).toBe('video')
+                expect(stored!.ext).toBe(ext)
             }),
         )
     })
@@ -358,7 +387,7 @@ describe('writeInlayImage', () => {
 
         expect(result).toBe('custom-id')
 
-        const stored = store.get('custom-id') as InlayAsset
+        const stored = await getInlayAssetBlob('custom-id')
         expect(stored).toMatchObject({
             data: expect.any(Blob),
             ext: 'png',
@@ -375,21 +404,23 @@ describe('writeInlayImage', () => {
         const result = await writeInlayImage(imgObj)
         expect(result).toBe('test-uuid-1234')
 
-        const stored = store.get('test-uuid-1234') as InlayAsset
-        expect(stored.name).toBe('test-uuid-1234')
+        const stored = await getInlayAssetBlob('test-uuid-1234')
+        expect(stored!.name).toBe('test-uuid-1234')
     })
 
     test('output pixels never exceed 1024 * 1024', async () => {
         await fc.assert(
             fc.asyncProperty(fc.integer({ min: 1, max: 10000 }), fc.integer({ min: 1, max: 10000 }), async (w, h) => {
-                store.clear()
+                nodeStorageMap.clear()
+                inlayMetaMap.clear()
+                __resetInlayStorageForTest()
                 const img = makeImage(w, h)
                 await writeInlayImage(img, { id: 'prop-img' })
-                const stored = store.get('prop-img') as InlayAsset
+                const stored = await getInlayAssetBlob('prop-img')
 
-                expect(stored.width * stored.height).toBeLessThanOrEqual(1024 * 1024)
-                expect(stored.width).toBeGreaterThan(0)
-                expect(stored.height).toBeGreaterThan(0)
+                expect(stored!.width! * stored!.height!).toBeLessThanOrEqual(1024 * 1024)
+                expect(stored!.width!).toBeGreaterThan(0)
+                expect(stored!.height!).toBeGreaterThan(0)
             }),
         )
     })
@@ -400,13 +431,15 @@ describe('writeInlayImage', () => {
                 fc.integer({ min: 1025, max: 10000 }),
                 fc.integer({ min: 1025, max: 10000 }),
                 async (w, h) => {
-                    store.clear()
+                    nodeStorageMap.clear()
+                    inlayMetaMap.clear()
+                    __resetInlayStorageForTest()
                     const img = makeImage(w, h)
                     await writeInlayImage(img, { id: 'ratio-img' })
-                    const stored = store.get('ratio-img') as InlayAsset
+                    const stored = await getInlayAssetBlob('ratio-img')
 
                     const originalRatio = w / h
-                    const storedRatio = stored.width / stored.height
+                    const storedRatio = stored!.width! / stored!.height!
                     expect(Math.abs(originalRatio - storedRatio) / originalRatio).toBeLessThan(0.01)
                 },
             ),
@@ -416,11 +449,13 @@ describe('writeInlayImage', () => {
     test('does not resize images within pixel budget', async () => {
         await fc.assert(
             fc.asyncProperty(fc.integer({ min: 1, max: 1024 }), fc.integer({ min: 1, max: 1024 }), async (w, h) => {
-                store.clear()
+                nodeStorageMap.clear()
+                inlayMetaMap.clear()
+                __resetInlayStorageForTest()
                 const img = makeImage(w, h)
                 await writeInlayImage(img, { id: 'small-img' })
 
-                const stored = store.get('small-img') as InlayAsset
+                const stored = await getInlayAssetBlob('small-img')
                 expect(stored).toMatchObject({
                     height: h,
                     width: w,
@@ -440,7 +475,9 @@ describe('set -> get round-trip', () => {
                 fc.nat({ max: 5000 }),
                 fc.nat({ max: 5000 }),
                 async (id, name, ext, width, height) => {
-                    store.clear()
+                    nodeStorageMap.clear()
+                    inlayMetaMap.clear()
+                    __resetInlayStorageForTest()
                     const blob = new Blob(['data'], { type: 'application/octet-stream' })
                     const asset: InlayAsset = {
                         data: blob,
@@ -472,7 +509,9 @@ describe('set -> remove -> get', () => {
     test('asset is always null after removal', async () => {
         await fc.assert(
             fc.asyncProperty(fc.string({ minLength: 1, maxLength: 20 }), async (id) => {
-                store.clear()
+                nodeStorageMap.clear()
+                inlayMetaMap.clear()
+                __resetInlayStorageForTest()
                 const asset: InlayAsset = {
                     data: new Blob(['x']),
                     ext: 'png',

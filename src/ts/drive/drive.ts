@@ -96,7 +96,7 @@ export async function checkDriverInit() {
     }
 }
 
-let lastSaved:number = parseInt(localStorage.getItem('risu_lastsaved') ?? '-1')
+let lastSaved:number = -1
 let BackupDb:Database = null
 
 
@@ -247,7 +247,6 @@ async function loadDrive(ACCESS_TOKEN:string, mode: 'backup'|'sync'):Promise<voi
     
         const db:Database = mode === 'backup' ? await getDbFromList() : JSON.parse(Buffer.from(await getFileData(ACCESS_TOKEN, dbs[0][0].id)).toString('utf-8'))
         lastSaved = Date.now()
-        localStorage.setItem('risu_lastsaved', `${lastSaved}`)
         const requiredImages = (getUncleanables(db))
         let ind = 0;
         let errorLogs:string[] = []

@@ -1,7 +1,6 @@
 import { Packr, Unpackr, decode } from "msgpackr/index-no-eval";
 import * as fflate from "fflate";
 import { getDatabase, presetTemplate, type Database } from "./database.svelte";
-import localforage from "localforage";
 import { forageStorage } from "../globalApi.svelte";
 
 const packr = new Packr({
@@ -104,9 +103,7 @@ type EncodeBlockOption = {
     remote: 'none'|'prefer'|'force'
 }
 
-const risuSaveCacheForage = localforage.createInstance({
-    name: 'risuSaveCache'
-});
+const risuSaveCacheMap = new Map<string, {type: RisuSaveType, data: string, name: string}>();
 export class RisuSaveEncoder {
 
     private blocks: { [key: string]: Uint8Array } = {};
@@ -298,7 +295,7 @@ export class RisuSaveEncoder {
         buf.set(nameBuf, 3);
         buf.set(new Uint8Array(lengthBuf), 3 + nameBuf.length);
         buf.set(databuf, 7 + nameBuf.length);
-        await risuSaveCacheForage.setItem(`risuSaveBlock_${arg.name}`, {
+        risuSaveCacheMap.set(`risuSaveBlock_${arg.name}`, {
             type: arg.type,
             data: arg.data,
             name: arg.name,
@@ -417,7 +414,7 @@ export class RisuSaveDecoder {
                                             type:RisuSaveType
                                             data:string
                                             name:string
-                                        } = await risuSaveCacheForage.getItem(`risuSaveBlock_${dirKey}`) as any;
+                                        } = risuSaveCacheMap.get(`risuSaveBlock_${dirKey}`) ?? null;
 
                                         if(dirData){
                                             this.blocks.push({

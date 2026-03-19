@@ -1,5 +1,4 @@
-import localforage from "localforage";
-import { type HypaModel, localModels } from "./hypamemory";
+import { type HypaModel, localModels, hypaVectorCache } from "./hypamemory";
 import { TaskRateLimiter, TaskCanceledError } from "./taskRateLimiter";
 import { runEmbedding } from "../transformers";
 import { globalFetch } from "src/ts/globalApi.svelte";
@@ -31,9 +30,6 @@ export class HypaProcessorV2<TMetadata> {
   public readonly options: HypaProcessorV2Options;
   public progressCallback: (queuedCount: number) => void = null;
   public vectors: Map<string, EmbeddingResult<TMetadata>> = new Map();
-  private forage: LocalForage = localforage.createInstance({
-    name: "hypaVector",
-  });
 
   public constructor(options?: HypaProcessorV2Options) {
     const db = getDatabase();
@@ -123,9 +119,7 @@ export class HypaProcessorV2<TMetadata> {
       }
 
       try {
-        const cached = await this.forage.getItem<EmbeddingResult<TMetadata>>(
-          this.getCacheKey(content)
-        );
+        const cached = hypaVectorCache.get(this.getCacheKey(content)) as EmbeddingResult<TMetadata> | undefined;
 
         if (cached) {
           // Debug log for cache hit
@@ -190,10 +184,10 @@ export class HypaProcessorV2<TMetadata> {
           };
 
           // Save to DB
-          await this.forage.setItem(this.getCacheKey(content), {
+          hypaVectorCache.set(this.getCacheKey(content), {
             content,
             embedding,
-          });
+          } as any);
 
           // Save to memory
           if (saveToMemory) {
@@ -244,10 +238,10 @@ export class HypaProcessorV2<TMetadata> {
           };
 
           // Save to DB
-          await this.forage.setItem(this.getCacheKey(content), {
+          hypaVectorCache.set(this.getCacheKey(content), {
             content,
             embedding,
-          });
+          } as any);
 
           // Save to memory
           if (saveToMemory) {

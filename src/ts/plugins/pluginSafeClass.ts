@@ -1,10 +1,6 @@
-import localforage from "localforage";
 import { toGetter } from "../globalApi.svelte";
 
-const pluginStorage = localforage.createInstance({
-    name: 'plugin',
-    storeName: 'plugin'
-})
+const pluginStorage = new Map<string, unknown>();
 
 export class SafeLocalStorage {
     getItem(key: string): string | null {
@@ -50,27 +46,28 @@ export class SafeLocalStorage {
 
 export class SafeLocalPluginStorage {
     async getItem<T>(key: string): Promise<T | null> {
-        return await pluginStorage.getItem<T>(`safe_plugin_${key}`);
+        return (pluginStorage.get(`safe_plugin_${key}`) as T) ?? null;
     }
     async setItem<T>(key: string, value: T): Promise<void> {
-        await pluginStorage.setItem(`safe_plugin_${key}`, value);
+        pluginStorage.set(`safe_plugin_${key}`, value);
     }
     async removeItem(key: string): Promise<void> {
-        await pluginStorage.removeItem(`safe_plugin_${key}`);
+        pluginStorage.delete(`safe_plugin_${key}`);
     }
     async keys(): Promise<string[]> {
         const keys: string[] = [];
-        await pluginStorage.iterate((value, key) => {
+        for (const key of pluginStorage.keys()) {
             if (key.startsWith('safe_plugin_')) {
                 keys.push(key.substring('safe_plugin_'.length));
             }
-        });
+        }
         return keys;
     }
     async clear(): Promise<void> {
-        const keys = await this.keys();
-        for (const key of keys) {
-            await this.removeItem(key);
+        for (const key of [...pluginStorage.keys()]) {
+            if (key.startsWith('safe_plugin_')) {
+                pluginStorage.delete(key);
+            }
         }
     }
 }

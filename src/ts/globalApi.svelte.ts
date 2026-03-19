@@ -10,7 +10,6 @@ import { checkDriverInit, syncDrive } from "./drive/drive";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
-import { loadRisuAccountData } from "./drive/accounter";
 import { decodeRisuSave, encodeRisuSaveLegacy, RisuSaveEncoder, type toSaveType } from "./storage/risuSave";
 import { AutoStorage } from "./storage/autoStorage";
 import { updateAnimationSpeed } from "./gui/animation";
@@ -22,7 +21,6 @@ import { updateGuisize } from "./gui/guisize";
 import { updateLorebooks } from "./characters";
 import { initMobileGesture } from "./hotkey";
 import { moduleUpdate } from "./process/modules";
-import type { AccountStorage } from "./storage/accountStorage";
 import { makeColdData } from "./process/coldstorage.svelte";
 
 export const forageStorage = new AutoStorage()
@@ -85,9 +83,6 @@ let checkedPaths: string[] = []
  * @returns {Promise<string>} - A promise that resolves to the source URL of the file.
  */
 export async function getFileSrc(loc: string) {
-    if (forageStorage.isAccount && loc.startsWith('assets')) {
-        return hubURL + `/rs/` + loc
-    }
     try {
         if (usingSw) {
             const encoded = Buffer.from(loc, 'utf-8').toString('hex')
@@ -250,7 +245,7 @@ export async function saveDb() {
 
     let encoder = new RisuSaveEncoder()
     await encoder.init(getDatabase(), {
-        compression: forageStorage.isAccount
+        compression: false
     })
 
     $effect.root(() => {
@@ -327,7 +322,7 @@ export async function saveDb() {
             if (requiresFullEncoderReload.state) {
                 encoder = new RisuSaveEncoder()
                 await encoder.init(getDatabase(), {
-                    compression: forageStorage.isAccount,
+                    compression: false,
                     skipRemoteSavingOnCharacters: false
                 })
                 requiresFullEncoderReload.state = false
@@ -360,15 +355,8 @@ export async function saveDb() {
             }
             const dbData = new Uint8Array(encoded)
             await forageStorage.setItem('database/database.bin', dbData)
-            if (!forageStorage.isAccount) {
-                await forageStorage.setItem(`database/dbbackup-${(Date.now() / 100).toFixed()}.bin`, dbData)
-            }
-            if (forageStorage.isAccount) {
-                await sleep(3000)
-            }
-            if (!forageStorage.isAccount) {
-                await getDbBackups()
-            }
+            await forageStorage.setItem(`database/dbbackup-${(Date.now() / 100).toFixed()}.bin`, dbData)
+            await getDbBackups()
             savetrys = 0
             await saveDbKei()
             await sleep(500)
@@ -649,10 +637,7 @@ async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<Global
         };
 
         // Add risu-auth header for Node.js server
-        const auth = localStorage.getItem('risuauth');
-        if (auth) {
-            headers["risu-auth"] = auth;
-        }
+        headers["risu-auth"] = await forageStorage.createAuth();
 
         const body = arg.body instanceof URLSearchParams ? arg.body.toString() : JSON.stringify(arg.body);
 
@@ -1299,13 +1284,11 @@ export async function fetchNative(url: string, arg: {
                 "risu-url": encodeURIComponent(url),
                 "Content-Type": "application/json",
                 "x-risu-tk": "use",
-                ...(localStorage.getItem('risuauth') ? { "risu-auth": localStorage.getItem('risuauth') } : {}),
                 ...(DBState?.db?.requestLocation && { "risu-location": DBState.db.requestLocation }),
             } : {
                 "risu-header": encodeURIComponent(JSON.stringify(headers)),
                 "risu-url": encodeURIComponent(url),
                 "Content-Type": "application/json",
-                ...(localStorage.getItem('risuauth') ? { "risu-auth": localStorage.getItem('risuauth') } : {}),
                 ...(DBState?.db?.requestLocation && { "risu-location": DBState.db.requestLocation }),
             },
             method: arg.method,

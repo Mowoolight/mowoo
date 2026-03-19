@@ -1,7 +1,6 @@
 import { forageStorage } from "../globalApi.svelte"
 import { DBState } from "../stores.svelte"
 import type { NodeStorage } from "../storage/nodeStorage"
-import { fetchProtectedResource } from "../sionyw"
 
 export const coldStorageHeader = '\uEF01COLDSTORAGE\uEF01'
 
@@ -18,35 +17,17 @@ async function decompress(data:Uint8Array) {
 }
 
 async function getColdStorageItem(key:string) {
-
-    if(forageStorage.isAccount){
-        const d = await fetchProtectedResource('/hub/account/coldstorage', {
-            method: 'GET',
-            headers: {
-                'x-risu-key': key,
-            }
-        })
-
-        if(d.status === 200){
-            const buf = await d.arrayBuffer()
-            const text = new TextDecoder().decode(await decompress(new Uint8Array(buf)))
-            return JSON.parse(text)
-        }
-        return null
-    }
-    else{
-        try {
-            const storage = forageStorage.realStorage as NodeStorage
-            const f = await storage.getItem('coldstorage/' + key)
-            if(!f){
-                return null
-            }
-            const text = new TextDecoder().decode(await decompress(new Uint8Array(f)))
-            return JSON.parse(text)
-        }
-        catch (error) {
+    try {
+        const storage = forageStorage.realStorage as NodeStorage
+        const f = await storage.getItem('coldstorage/' + key)
+        if(!f){
             return null
         }
+        const text = new TextDecoder().decode(await decompress(new Uint8Array(f)))
+        return JSON.parse(text)
+    }
+    catch (error) {
+        return null
     }
 }
 
@@ -54,7 +35,7 @@ async function setColdStorageItem(key:string, value:any) {
 
     const fflate = await import('fflate')
     const json = JSON.stringify(value)
-    const compressed = await (new Promise<Uint8Array>((resolve, reject) => {   
+    const compressed = await (new Promise<Uint8Array>((resolve, reject) => {
         fflate.compress(new TextEncoder().encode(json), (err, compressed) => {
             if (err) {
                 reject(err)
@@ -62,38 +43,16 @@ async function setColdStorageItem(key:string, value:any) {
             resolve(compressed)
         })
     }))
-    
-    if(forageStorage.isAccount){
-        const res = await fetchProtectedResource('/hub/account/coldstorage', {
-            method: 'POST',
-            headers: {
-                'x-risu-key': key,
-                'content-type': 'application/json'
-            },
-            body: compressed as any
-        })
-        if(res.status !== 200){
-            try {
-                console.error('Error setting cold storage item')
-                console.error(await res.text())   
-            } catch (error) {}
-        }
+
+    try {
+        const storage = forageStorage.realStorage as NodeStorage
+        await storage.setItem('coldstorage/' + key, compressed)
         return
-    }
-    else{
-        try {
-            const storage = forageStorage.realStorage as NodeStorage
-            await storage.setItem('coldstorage/' + key, compressed)
-            return
-        } catch (error) {
-            console.error(error)
-        }
+    } catch (error) {
+        console.error(error)
     }
 }
 
-async function removeColdStorageItem(key:string) {
-    // no-op for node server
-}
 
 export async function makeColdData(){
 
@@ -106,7 +65,7 @@ export async function makeColdData(){
 
     for(let i=0;i<DBState.db.characters.length;i++){
         for(let j=0;j<DBState.db.characters[i].chats.length;j++){
-            
+
             const chat = DBState.db.characters[i].chats[j]
             let greatestTime = chat.lastDate ?? 0
 
@@ -164,7 +123,7 @@ export async function makeColdData(){
 }
 
 export async function preLoadChat(characterIndex:number, chatIndex:number){
-    const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]   
+    const chat = DBState.db?.characters?.[characterIndex]?.chats?.[chatIndex]
 
     if(!chat){
         return

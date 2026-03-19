@@ -98,13 +98,17 @@ export class NodeStorage{
         }
         return data
     }
-    async keys():Promise<string[]>{
+    async keys(prefix: string = ''):Promise<string[]>{
         await this.checkAuth()
+        const headers: Record<string, string> = {
+            'risu-auth': await this.createAuth()
+        }
+        if (prefix) {
+            headers['key-prefix'] = prefix
+        }
         const da = await fetch('/api/list', {
             method: "GET",
-            headers:{
-                'risu-auth': await this.createAuth()
-            }
+            headers
         })
         if(da.status < 200 || da.status >= 300){
             throw "listItem Error"

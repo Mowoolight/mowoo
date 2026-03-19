@@ -10,7 +10,6 @@ import { selectedCharID } from "../stores.svelte"
 import { getModuleRegexScripts } from "../process/modules"
 import { getNodetextToSentence, sleep } from "../util"
 import { processScriptFull } from "../process/scripts"
-import localforage from "localforage"
 import sendSound from '../../etc/send.mp3'
 
 let cache={
@@ -20,9 +19,7 @@ let cache={
 
 let bergamotTranslate: (text: string, from: string, to: string, html?: boolean) => Promise<string>|null = null
 
-export const LLMCacheStorage = localforage.createInstance({
-    name: "LLMTranslateCache"
-})
+const llmTranslateCache = new Map<string, string>()
 
 let waitTrans = 0
 
@@ -493,9 +490,9 @@ function needSuperChunkedTranslate(){
 
 async function translateLLM(text:string, arg:{to:string, from:string, regenerate?:boolean,translatorNote?:string}):Promise<string>{
     if(!arg.regenerate){
-        const cacheMatch = await LLMCacheStorage.getItem(text)
+        const cacheMatch = llmTranslateCache.get(text)
         if(cacheMatch){
-            return cacheMatch as string
+            return cacheMatch
         }
     }
     const styleDecodeRegex = /\<risu-style\>(.+?)\<\/risu-style\>/gms
@@ -558,21 +555,25 @@ async function translateLLM(text:string, arg:{to:string, from:string, regenerate
     const result = rq.result.replace(/<style-data style-index="(\d+)" ?\/?>/g, (match, p1) => {
         return styleDecodes[parseInt(p1)] ?? ''
     }).replace(/<\/style-data>/g, '')
-    await LLMCacheStorage.setItem(text, result)
+    llmTranslateCache.set(text, result)
     return result
 }
 
+export function clearLLMCache(): void {
+    llmTranslateCache.clear()
+}
+
 export async function getLLMCache(text:string):Promise<string | null>{
-    return await LLMCacheStorage.getItem(text)
+    return llmTranslateCache.get(text) ?? null
 }
 
 export async function searchLLMCache(partialKey:string):Promise<{key: string, value: string}[]>{
     const results:{key: string, value: string}[] = []
-    await LLMCacheStorage.iterate<string, void>((value, key) => {
+    for(const [key, value] of llmTranslateCache){
         if(key.includes(partialKey)){
             results.push({key, value})
         }
-    })
+    }
     return results
 }
 

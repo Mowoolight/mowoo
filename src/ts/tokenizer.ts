@@ -446,10 +446,13 @@ export async function tokenizeNum(data:string) {
     return encoded
 }
 
+const strongBanCache = new Map<string, {[key:number]:number}>();
+
 export async function strongBan(data:string, bias:{[key:number]:number}) {
 
-    if(localStorage.getItem('strongBan_' + data)){
-        return JSON.parse(localStorage.getItem('strongBan_' + data))
+    const cacheKey = 'strongBan_' + data
+    if(strongBanCache.has(cacheKey)){
+        return strongBanCache.get(cacheKey)
     }
     const performace = performance.now()
     const length = Object.keys(bias).length
@@ -495,7 +498,7 @@ export async function strongBan(data:string, bias:{[key:number]:number}) {
             }
         }
     }
-    localStorage.setItem('strongBan_' + data, JSON.stringify(bias))
+    strongBanCache.set(cacheKey, bias)
     return bias
 }
 

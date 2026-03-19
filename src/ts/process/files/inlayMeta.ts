@@ -1,0 +1,102 @@
+import { getCurrentCharacter } from "../../storage/database.svelte";
+import { NodeStorage } from "../../storage/nodeStorage";
+
+const INLAY_META_PREFIX = 'inlay_meta/'
+
+export type InlayAssetMeta = {
+    createdAt: number
+    updatedAt: number
+    charId?: string
+    chatId?: string
+}
+
+class NodeInlayMetaStorage {
+    private nodeStorage = new NodeStorage()
+
+    private serverKey(id: string): string {
+        return `${INLAY_META_PREFIX}${id}`
+    }
+
+    async setItem(id: string, meta: InlayAssetMeta): Promise<void> {
+        const bytes = new TextEncoder().encode(JSON.stringify(meta))
+        await this.nodeStorage.setItem(this.serverKey(id), bytes)
+    }
+
+    async getItem(id: string): Promise<InlayAssetMeta | null> {
+        try {
+            const buf = await this.nodeStorage.getItem(this.serverKey(id))
+            if (!buf || buf.length === 0) return null
+            const raw = JSON.parse(new TextDecoder().decode(buf))
+            const createdAt = typeof raw?.createdAt === 'number' ? raw.createdAt : 0
+            const updatedAt = typeof raw?.updatedAt === 'number' ? raw.updatedAt : createdAt
+            const charId = typeof raw?.charId === 'string' ? raw.charId : undefined
+            const chatId = typeof raw?.chatId === 'string' ? raw.chatId : undefined
+            return { createdAt, updatedAt, charId, chatId }
+        } catch {
+            return null
+        }
+    }
+
+    async removeItem(id: string): Promise<void> {
+        try {
+            await this.nodeStorage.removeItem(this.serverKey(id))
+        } catch {
+            // ignore
+        }
+    }
+
+    async entries(): Promise<[string, InlayAssetMeta][]> {
+        const allKeys = await this.nodeStorage.keys(INLAY_META_PREFIX)
+        const entries: [string, InlayAssetMeta][] = []
+        const ids = allKeys.map((k) => k.replace(INLAY_META_PREFIX, ''))
+        const batchSize = 200
+        for (let i = 0; i < ids.length; i += batchSize) {
+            const batch = ids.slice(i, i + batchSize)
+            const metas = await Promise.all(batch.map(async (id) => {
+                try { return await this.getItem(id) } catch { return null }
+            }))
+            for (let j = 0; j < batch.length; j++) {
+                const meta = metas[j]
+                if (meta) entries.push([batch[j], meta])
+            }
+        }
+        return entries
+    }
+}
+
+let _storage: NodeInlayMetaStorage | null = null
+function getStorage(): NodeInlayMetaStorage {
+    if (!_storage) _storage = new NodeInlayMetaStorage()
+    return _storage
+}
+
+export async function setInlayMeta(id: string, meta: InlayAssetMeta): Promise<void> {
+    await getStorage().setItem(id, meta)
+}
+
+export async function removeInlayMeta(id: string): Promise<void> {
+    await getStorage().removeItem(id)
+}
+
+export async function listInlayMetaEntries(): Promise<[string, InlayAssetMeta][]> {
+    return await getStorage().entries()
+}
+
+export async function getInlayMeta(id: string): Promise<InlayAssetMeta | null> {
+    return await getStorage().getItem(id)
+}
+
+export function buildInlayMeta(existingMeta?: InlayAssetMeta | null): InlayAssetMeta {
+    const now = Date.now()
+    const currentChar = getCurrentCharacter()
+    const currentCharId = typeof currentChar?.chaId === 'string' ? currentChar.chaId : undefined
+    const currentChat = currentChar?.chats?.[currentChar?.chatPage ?? 0]
+    const currentChatId = typeof currentChat?.id === 'string' ? currentChat.id : undefined
+
+    return {
+        createdAt: (existingMeta?.createdAt && existingMeta.createdAt > 0) ? existingMeta.createdAt : now,
+        updatedAt: now,
+        charId: (existingMeta?.charId && existingMeta.charId.length > 0) ? existingMeta.charId : currentCharId,
+        chatId: (existingMeta?.chatId && existingMeta.chatId.length > 0) ? existingMeta.chatId : currentChatId,
+    }
+}

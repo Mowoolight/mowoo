@@ -14,7 +14,6 @@ import { get } from "svelte/store";
 import { registerMCPModule, unregisterMCPModule } from "src/ts/process/mcp/pluginmcp";
 import { getLLMCache, searchLLMCache } from "src/ts/translator/translator";
 import { hasher } from "src/ts/parser/parser.svelte";
-import localforage from "localforage";
 import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer, type LLMModel } from "src/ts/model/types";
 
 /*
@@ -512,10 +511,7 @@ const unloadV3Plugin = async (pluginName: string) => {
 
 const permissionGivenPlugins: Set<string> = new Set();
 const permissionDeniedPlugins: Set<string> = new Set();
-const permissionForage = localforage.createInstance({
-    name: 'plugin_permissions',
-    storeName: 'plugin_permissions'
-});
+const permissionCache = new Map<string, boolean | number>();
 
 type PluginV3ProviderOptions = PluginV2ProviderOptions & {
     model?: LLMModel
@@ -536,7 +532,7 @@ const getPluginPermission = async (pluginName: string, permissionDesc: 'fetchLog
     let requiresReconfirm = false;
 
     if(reconfirm === 'periodically'){
-        const lastGrantTime:number = await permissionForage.getItem(pluginName + '_' + permissionDesc + '_lastGrantTime');
+        const lastGrantTime = permissionCache.get(pluginName + '_' + permissionDesc + '_lastGrantTime') as number | undefined;
         const now = Date.now();
         if(!lastGrantTime || now - lastGrantTime > 3 * 24 * 60 * 60 * 1000){ //3 days
             requiresReconfirm = true;
@@ -552,10 +548,10 @@ const getPluginPermission = async (pluginName: string, permissionDesc: 'fetchLog
         )
     ) + `_${permissionDesc}`;
 
-    if(!requiresReconfirm &&await permissionForage.getItem(pluginHash)){
+    if(!requiresReconfirm && permissionCache.get(pluginHash)){
         permissionGivenPlugins.add(pluginName);
         return true;
-    }   
+    }
     
 
     let alertTitle =
@@ -571,9 +567,9 @@ const getPluginPermission = async (pluginName: string, permissionDesc: 'fetchLog
     const conf = await alertConfirm(alertTitle)
     if(conf && pluginHash){
         permissionGivenPlugins.add(pluginName);
-        await permissionForage.setItem(pluginHash, true);
+        permissionCache.set(pluginHash, true);
         if(reconfirm === 'periodically'){
-            await permissionForage.setItem(pluginName + '_' + permissionDesc + '_lastGrantTime', Date.now());
+            permissionCache.set(pluginName + '_' + permissionDesc + '_lastGrantTime', Date.now());
         }
         return true;
     }

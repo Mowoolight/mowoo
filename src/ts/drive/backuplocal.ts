@@ -1,4 +1,3 @@
-import localforage from "localforage";
 import { alertError, alertNormal, alertStore, alertWait, alertMd, alertConfirm } from "../alert";
 import { LocalWriter, forageStorage, requiresFullEncoderReload } from "../globalApi.svelte";
 import { decodeRisuSave, encodeRisuSaveLegacy } from "../storage/risuSave";
@@ -83,27 +82,12 @@ export async function SaveLocalBackup(){
         if(!key || !key.endsWith('.png')){
             continue
         }
-        let data: Uint8Array | undefined;
-        let isCached = false;
-        if(forageStorage.isAccount && key.startsWith('assets/')){
-            const cached = await localforage.getItem(key) as ArrayBuffer;
-            if(cached) {
-                isCached = true;
-                data = new Uint8Array(cached);
-            }
-        }
-
-        if (!data) {
-            data = await forageStorage.getItem(key) as unknown as Uint8Array
-        }
+        const data = await forageStorage.getItem(key) as unknown as Uint8Array
 
         if (data) {
             await writer.writeBackup(key, data)
         } else {
             missingAssets.push(key)
-        }
-        if(forageStorage.isAccount && !isCached){
-            await sleep(1000)
         }
     }
 
@@ -241,27 +225,12 @@ export async function SavePartialLocalBackup(){
             continue
         }
 
-        let data: Uint8Array | undefined;
-        let isCached = false;
-        if(forageStorage.isAccount && key.startsWith('assets/')){
-            const cached = await localforage.getItem(key) as ArrayBuffer;
-            if(cached) {
-                isCached = true;
-                data = new Uint8Array(cached);
-            }
-        }
-
-        if (!data) {
-            data = await forageStorage.getItem(key) as unknown as Uint8Array
-        }
+        const data = await forageStorage.getItem(key) as unknown as Uint8Array
 
         if (data) {
             await writer.writeBackup(key, data)
         } else {
             missingAssets.push(key)
-        }
-        if(forageStorage.isAccount && !isCached){
-            await sleep(100)
         }
     }
 
@@ -357,9 +326,6 @@ export function LoadLocalBackup(){
                         await forageStorage.setItem('assets/' + name, data);
                     }
                     await sleep(10);
-                    if (forageStorage.isAccount) {
-                        await sleep(1000);
-                    }
 
                     offset += 4 + nameLength + 4 + dataLength;
                 }

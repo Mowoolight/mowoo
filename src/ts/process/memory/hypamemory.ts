@@ -1,4 +1,3 @@
-import localforage from "localforage";
 import { globalFetch } from "src/ts/globalApi.svelte";
 import { runEmbedding } from "../transformers";
 import { appendLastPath } from "src/ts/util";
@@ -34,17 +33,16 @@ export const localModels = {
     ]
 }
 
+// Shared embedding vector cache across all HypaProcesser instances
+export const hypaVectorCache = new Map<string, memoryVector>();
+
 export class HypaProcesser{
     oaikey:string
     vectors:memoryVector[]
-    forage:LocalForage
     model:HypaModel
     customEmbeddingUrl:string
 
     constructor(model:HypaModel|'auto' = 'auto',customEmbeddingUrl?:string){
-        this.forage = localforage.createInstance({
-            name: "hypaVector"
-        })
         this.vectors = []
         const db = getDatabase()
         if(model === 'auto'){
@@ -134,12 +132,12 @@ export class HypaProcesser{
     }
 
     async testText(text:string){
-        const forageResult:number[] = await this.forage.getItem(text)
-        if(forageResult){
-            return forageResult
+        const cached = hypaVectorCache.get(text)
+        if(cached){
+            return cached.embedding
         }
         const vec = (await this.embedDocuments([text]))[0]
-        await this.forage.setItem(text, vec)
+        hypaVectorCache.set(text, { content: text, embedding: vec as number[] })
         return vec
     }
     
@@ -148,7 +146,7 @@ export class HypaProcesser{
         const suffix = (this.model === 'custom' && db.hypaCustomSettings?.model?.trim()) ? `-${db.hypaCustomSettings.model.trim()}` : ""
 
         for(let i=0;i<texts.length;i++){
-            const itm:memoryVector = await this.forage.getItem(texts[i] + '|' + this.model + suffix)
+            const itm = hypaVectorCache.get(texts[i] + '|' + this.model + suffix)
             if(itm){
                 itm.alreadySaved = true
                 this.vectors.push(itm)
@@ -177,7 +175,7 @@ export class HypaProcesser{
         for(let i=0;i<memoryVectors.length;i++){
             const vec = memoryVectors[i]
             if(!vec.alreadySaved){
-                await this.forage.setItem(texts[i] + '|' + this.model + suffix, vec)
+                hypaVectorCache.set(texts[i] + '|' + this.model + suffix, vec)
             }
         }
 

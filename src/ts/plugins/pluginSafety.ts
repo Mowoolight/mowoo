@@ -52,17 +52,16 @@ export type PluginSafetyErrors = {
 
 // Increment this version if the safety rules change to invalidate the cache
 const checkerVersion = 3;
+const safetyCache = new Map<string, CheckResult>();
+
 export async function checkCodeSafety(code: string): Promise<CheckResult> {
     const errors: PluginSafetyErrors[] = [];
 
     const hashedCode = await hasher(new TextEncoder().encode(code));
     const cacheKey = `safety-${hashedCode}`;
-    const cachedResult = localStorage.getItem(cacheKey);
-    if (cachedResult) {
-        const got =  JSON.parse(cachedResult) as CheckResult;
-        if (got.checkerVersion === checkerVersion) {
-            return got;
-        }
+    const cachedResult = safetyCache.get(cacheKey);
+    if (cachedResult && cachedResult.checkerVersion === checkerVersion) {
+        return cachedResult;
     }
 
     try {
@@ -150,8 +149,9 @@ export async function checkCodeSafety(code: string): Promise<CheckResult> {
         userAlertKey: 'errorInVerification'
     })
 
-    localStorage.setItem(cacheKey, JSON.stringify({ isSafe: errors.length === 0, errors, checkerVersion, modifiedCode:code }));
-    return { isSafe: errors.length === 0, errors, checkerVersion, modifiedCode: code};
+    const result = { isSafe: errors.length === 0, errors, checkerVersion, modifiedCode: code };
+    safetyCache.set(cacheKey, result);
+    return result;
 }
 
 function validateNode(node: any, type: DangerousNodeType, name: string | undefined, errors: PluginSafetyErrors[]) {

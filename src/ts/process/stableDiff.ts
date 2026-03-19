@@ -584,11 +584,7 @@ export async function generateAIImage(genPrompt:string, currentChar:character, n
     }
     if(db.sdProvider === 'kei'){
         const db = getDatabase()
-        let auth = db?.account?.token
-        if(!auth){
-            db.account = JSON.parse(localStorage.getItem("fallbackRisuToken"))
-            auth = db?.account?.token
-        }
+        const auth = db?.account?.token
         const da = await globalFetch(keiServerURL() + '/imaggen', {
             body: {
                 "prompt": genPrompt,
