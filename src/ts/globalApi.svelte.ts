@@ -1303,17 +1303,15 @@ export async function fetchNative(url: string, arg: {
     chatId?: string
     interceptor?: string
 }): Promise<Response> {
-
     const useInterceptor = !!arg.interceptor
-    console.log(arg.body, 'body')
     if (arg.body === undefined && (arg.method === 'POST' || arg.method === 'PUT')) {
         throw new Error('Body is required for POST and PUT requests')
     }
 
     arg.method = arg.method ?? 'POST'
 
-    let headers = arg.headers ?? {}
-    let realBody: Uint8Array
+    const headers = arg.headers ?? {}
+    let realBody: Uint8Array | undefined
 
     if (arg.method === 'GET' || arg.method === 'DELETE') {
         realBody = undefined
@@ -1342,10 +1340,8 @@ export async function fetchNative(url: string, arg: {
         throw new Error('Invalid body type')
     }
 
-    const db = getDatabase()
-    let throughProxy = false
-    let fetchLogIndex = addFetchLog({
-        body: new TextDecoder().decode(realBody),
+    addFetchLog({
+        body: realBody ? new TextDecoder().decode(realBody) : '',
         headers: arg.headers,
         response: 'Streamed Fetch',
         success: true,
@@ -1361,39 +1357,30 @@ export async function fetchNative(url: string, arg: {
             signal: arg.signal
         })
     }
-    else if (throughProxy) {
 
-        const r = await fetch(hubURL + `/proxy2`, {
-            body: realBody as any,
-            headers: arg.useRisuTk ? {
-                "risu-header": encodeURIComponent(JSON.stringify(headers)),
-                "risu-url": encodeURIComponent(url),
-                "Content-Type": "application/json",
-                "x-risu-tk": "use",
-                ...(DBState?.db?.requestLocation && { "risu-location": DBState.db.requestLocation }),
-            } : {
-                "risu-header": encodeURIComponent(JSON.stringify(headers)),
-                "risu-url": encodeURIComponent(url),
-                "Content-Type": "application/json",
-                ...(DBState?.db?.requestLocation && { "risu-location": DBState.db.requestLocation }),
-            },
-            method: arg.method,
-            signal: arg.signal
-        })
+    const proxyHeaders: Record<string, string> = {
+        "risu-header": encodeURIComponent(JSON.stringify(headers)),
+        "risu-url": encodeURIComponent(url),
+        "risu-auth": await forageStorage.createAuth(),
+        ...(arg.useRisuTk ? { "x-risu-tk": "use" } : {}),
+        ...(DBState?.db?.requestLocation ? { "risu-location": DBState.db.requestLocation } : {}),
+    }
 
-        return new Response(r.body, {
-            headers: r.headers,
-            status: r.status
-        })
+    if (realBody) {
+        proxyHeaders["Content-Type"] = headers["Content-Type"] ?? headers["content-type"] ?? "application/octet-stream"
     }
-    else {
-        return await fetch(url, {
-            body: realBody as any,
-            headers: headers,
-            method: arg.method,
-            signal: arg.signal,
-        })
-    }
+
+    const r = await fetch(`/proxy2`, {
+        body: realBody as any,
+        headers: proxyHeaders,
+        method: arg.method,
+        signal: arg.signal
+    })
+
+    return new Response(r.body, {
+        headers: r.headers,
+        status: r.status
+    })
 }
 
 /**

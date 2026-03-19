@@ -305,6 +305,12 @@ const reverseProxyFunc = async (req, res, next) => {
         return;
     }
     const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
+    if (req.headers['x-risu-tk'] && !header['x-risu-tk']) {
+        header['x-risu-tk'] = req.headers['x-risu-tk'];
+    }
+    if (req.headers['risu-location'] && !header['risu-location']) {
+        header['risu-location'] = req.headers['risu-location'];
+    }
     if(!header['x-forwarded-for']){
         header['x-forwarded-for'] = req.ip
     }
@@ -322,11 +328,21 @@ const reverseProxyFunc = async (req, res, next) => {
     }
     let originalResponse;
     try {
+        let requestBody = undefined;
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+            if (Buffer.isBuffer(req.body) || typeof req.body === 'string') {
+                requestBody = req.body;
+            }
+            else if (req.body !== undefined) {
+                requestBody = JSON.stringify(req.body);
+            }
+        }
         // make request to original server
         originalResponse = await fetch(urlParam, {
             method: req.method,
             headers: header,
-            body: JSON.stringify(req.body)
+            body: requestBody,
+            duplex: requestBody ? 'half' : undefined
         });
         // get response body as stream
         const originalBody = originalResponse.body;
@@ -370,6 +386,12 @@ const reverseProxyFunc_get = async (req, res, next) => {
         return;
     }
     const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
+    if (req.headers['x-risu-tk'] && !header['x-risu-tk']) {
+        header['x-risu-tk'] = req.headers['x-risu-tk'];
+    }
+    if (req.headers['risu-location'] && !header['risu-location']) {
+        header['risu-location'] = req.headers['risu-location'];
+    }
     if(!header['x-forwarded-for']){
         header['x-forwarded-for'] = req.ip
     }
@@ -572,6 +594,10 @@ app.get('/hub-proxy/*', hubProxyFunc);
 
 app.post('/proxy', reverseProxyFunc);
 app.post('/proxy2', reverseProxyFunc);
+app.put('/proxy', reverseProxyFunc);
+app.put('/proxy2', reverseProxyFunc);
+app.delete('/proxy', reverseProxyFunc);
+app.delete('/proxy2', reverseProxyFunc);
 app.post('/hub-proxy/*', hubProxyFunc);
 
 // app.get('/api/password', async(req, res)=> {
