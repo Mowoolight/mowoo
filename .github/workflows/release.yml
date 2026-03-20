@@ -1,4 +1,4 @@
-name: Create GitHub Release
+name: Create GitHub Release with Portable Packages
 
 on:
   push:
@@ -9,15 +9,173 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      - name: Prune dev dependencies
+        run: pnpm prune --prod
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: |
+            dist/
+            server/
+            node_modules/
+            package.json
+            update.sh
+          retention-days: 1
+
+  portable:
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - os: win-x64
+            node_platform: win
+            node_arch: x64
+            ext: zip
+            node_ext: zip
+            launcher: RisuAI.bat
+          - os: linux-x64
+            node_platform: linux
+            node_arch: x64
+            ext: tar.gz
+            node_ext: tar.xz
+            launcher: start.sh
+          - os: macos-arm64
+            node_platform: darwin
+            node_arch: arm64
+            ext: tar.gz
+            node_ext: tar.gz
+            launcher: start.sh
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-build
+          path: portable/
+
+      - name: Extract version
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Download Node.js binary
+        run: |
+          NODE_VERSION="22.14.0"
+          PLATFORM="${{ matrix.node_platform }}"
+          ARCH="${{ matrix.node_arch }}"
+
+          mkdir -p portable/bin
+
+          if [ "$PLATFORM" = "win" ]; then
+            URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${PLATFORM}-${ARCH}.zip"
+            curl -fsSL "$URL" -o node.zip
+            unzip -q node.zip
+            cp "node-v${NODE_VERSION}-${PLATFORM}-${ARCH}/node.exe" portable/bin/node.exe
+          elif [ "$PLATFORM" = "linux" ]; then
+            URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${PLATFORM}-${ARCH}.tar.xz"
+            curl -fsSL "$URL" -o node.tar.xz
+            tar -xJf node.tar.xz
+            cp "node-v${NODE_VERSION}-${PLATFORM}-${ARCH}/bin/node" portable/bin/node
+          else
+            URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-${PLATFORM}-${ARCH}.tar.gz"
+            curl -fsSL "$URL" -o node.tar.gz
+            tar -xzf node.tar.gz
+            cp "node-v${NODE_VERSION}-${PLATFORM}-${ARCH}/bin/node" portable/bin/node
+          fi
+
+          chmod +x portable/bin/node* 2>/dev/null || true
+
+      - name: Add launcher script
+        run: |
+          if [ "${{ matrix.node_platform }}" = "win" ]; then
+            cat > portable/RisuAI.bat << 'BATCH'
+          @echo off
+          setlocal
+          title RisuAI NodeOnly
+          set PORT=6001
+          start "" "http://localhost:%PORT%"
+          "%~dp0bin\node.exe" "%~dp0server\node\server.cjs"
+          pause
+          BATCH
+            cat > portable/update.bat << 'BATCH'
+          @echo off
+          "%~dp0bin\node.exe" "%~dp0scripts\updater.js"
+          pause
+          BATCH
+          else
+            cat > portable/start.sh << 'SHELL'
+          #!/bin/bash
+          cd "$(dirname "$0")"
+          PORT=${PORT:-6001} ./bin/node ./server/node/server.cjs
+          SHELL
+            chmod +x portable/start.sh
+          fi
+
+      - name: Add updater script
+        run: |
+          mkdir -p portable/scripts
+          cp scripts/updater.js portable/scripts/updater.js 2>/dev/null || true
+
+      - name: Package portable
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          NAME="RisuAI-NodeOnly-v${VERSION}-${{ matrix.os }}"
+
+          cd portable
+          if [ "${{ matrix.ext }}" = "zip" ]; then
+            zip -rq "../${NAME}.zip" .
+          else
+            tar -czf "../${NAME}.tar.gz" .
+          fi
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-${{ matrix.os }}
+          path: RisuAI-NodeOnly-*
+          retention-days: 1
+
+  release:
+    needs: portable
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all portable artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: portable-*
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -26,3 +184,4 @@ jobs:
           name: ${{ github.ref_name }}
           generate_release_notes: true
           draft: true
+          files: RisuAI-NodeOnly-*
