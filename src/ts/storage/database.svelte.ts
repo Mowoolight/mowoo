@@ -704,6 +704,183 @@ export function setCurrentChat(chat:Chat){
     setCurrentCharacter(char)
 }
 
+// ── Prompt Option State (per-chat toggle sync) ──────────────────────
+
+function parseToggleKeysFromTemplate(template:string){
+    const keys = new Set<string>()
+    for(const rawLine of template.split('\n')){
+        const line = rawLine.trim()
+        if(!line){
+            continue
+        }
+        const parts = line.split('=')
+        const key = parts[0]?.trim()
+        const type = parts[2]?.trim()
+        if(!key || type === 'group' || type === 'groupEnd' || type === 'divider' || type === 'caption'){
+            continue
+        }
+        keys.add(`toggle_${key}`)
+    }
+    return Array.from(keys)
+}
+
+function getEnabledModuleDefinitions(db:Database, char:character|groupChat, chat:Chat){
+    const ids = [
+        ...(db.enabledModules ?? []),
+        ...(char.modules ?? []),
+        ...(chat.modules ?? []),
+        ...(db.moduleIntergration ? db.moduleIntergration.split(',').map((value) => value.trim()).filter(Boolean) : [])
+    ]
+    const idSet = new Set(ids)
+    const seen = new Set<string>()
+    const modules:RisuModule[] = []
+    for(const module of db.modules ?? []){
+        if(!module){
+            continue
+        }
+        if(!idSet.has(module.id) && !(module.namespace && idSet.has(module.namespace))){
+            continue
+        }
+        if(seen.has(module.id)){
+            continue
+        }
+        seen.add(module.id)
+        modules.push(module)
+    }
+    return modules
+}
+
+export function getDefinedPromptToggleKeys(db:Database, char:character|groupChat, chat:Chat){
+    const moduleToggleTemplate = getEnabledModuleDefinitions(db, char, chat)
+        .map((module) => module.customModuleToggle ?? '')
+        .filter(Boolean)
+        .join('\n')
+    return parseToggleKeysFromTemplate(`${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}`)
+}
+
+export function snapshotPromptToggleValues(db:Database, keys:string[]){
+    const values:Record<string, string> = {}
+    for(const key of keys){
+        const value = db.globalChatVariables[key]
+        if(value !== undefined){
+            values[key] = value
+        }
+    }
+    return values
+}
+
+export function applyPromptToggleValues(db:Database, values:Record<string, string>, keys:string[]){
+    for(const key of keys){
+        const value = values[key]
+        if(value === undefined){
+            delete db.globalChatVariables[key]
+            continue
+        }
+        db.globalChatVariables[key] = value
+    }
+}
+
+function normalizePromptOptionState(chat:Chat, db:Database, char:character|groupChat){
+    chat.modules ??= []
+    const keys = getDefinedPromptToggleKeys(db, char, chat)
+    const currentState = chat.promptOptionState
+    const normalizedValues:Record<string, string> = {}
+    for(const key of keys){
+        const value = currentState?.toggleValues?.[key]
+        if(value !== undefined){
+            normalizedValues[key] = value
+        }
+    }
+
+    if(!currentState){
+        chat.promptOptionState = {
+            version: 1,
+            toggleValues: snapshotPromptToggleValues(db, keys),
+            updatedAt: Date.now(),
+            sourcePresetId: null
+        }
+        return true
+    }
+
+    const changed =
+        currentState.version !== 1 ||
+        JSON.stringify(currentState.toggleValues ?? {}) !== JSON.stringify(normalizedValues)
+
+    if(changed){
+        chat.promptOptionState = {
+            version: 1,
+            toggleValues: normalizedValues,
+            updatedAt: Date.now(),
+            sourcePresetId: currentState.sourcePresetId ?? null
+        }
+    }
+    return changed
+}
+
+export function initializeChatPromptOptionState(chat:Chat, char = getCurrentCharacter(), db = getDatabase()){
+    if(!char || !chat){
+        return chat
+    }
+    chat.modules ??= []
+    chat.supaMemory ??= char.supaMemory ?? false
+    if(chat.promptOptionState){
+        normalizePromptOptionState(chat, db, char)
+        return chat
+    }
+    const keys = getDefinedPromptToggleKeys(db, char, chat)
+    chat.promptOptionState = {
+        version: 1,
+        toggleValues: snapshotPromptToggleValues(db, keys),
+        updatedAt: Date.now(),
+        sourcePresetId: null
+    }
+    return chat
+}
+
+export function syncCurrentChatPromptOptionState(){
+    const db = getDatabase()
+    const char = getCurrentCharacter()
+    const chat = getCurrentChat()
+    if(!char || !chat){
+        return
+    }
+    chat.modules ??= []
+    const keys = getDefinedPromptToggleKeys(db, char, chat)
+    chat.promptOptionState = {
+        version: 1,
+        toggleValues: snapshotPromptToggleValues(db, keys),
+        updatedAt: Date.now(),
+        sourcePresetId: chat.promptOptionState?.sourcePresetId ?? null
+    }
+    char.chats[char.chatPage] = chat
+}
+
+export function applyCurrentChatPromptOptionState(){
+    const db = getDatabase()
+    const char = getCurrentCharacter()
+    const chat = getCurrentChat()
+    if(!char || !chat){
+        return
+    }
+    normalizePromptOptionState(chat, db, char)
+    const keys = getDefinedPromptToggleKeys(db, char, chat)
+    applyPromptToggleValues(db, chat.promptOptionState?.toggleValues ?? {}, keys)
+}
+
+export function migratePromptOptionStates(data: Database) {
+    for (const char of data.characters) {
+        if (!char) continue
+        char.modules ??= []
+        for (const chat of char.chats ?? []) {
+            if (!chat) continue
+            normalizePromptOptionState(chat, data, char)
+            chat.supaMemory ??= char.supaMemory ?? false
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────
+
 export interface DynamicOutput {
     autoAdjustSchema: boolean
     dynamicMessages: boolean
@@ -1668,6 +1845,13 @@ interface ComfyConfig{
 
 export type FormatingOrderItem = 'main'|'jailbreak'|'chats'|'lorebook'|'globalNote'|'authorNote'|'lastChat'|'description'|'postEverything'|'personaPrompt'
 
+export interface ChatPromptOptionState {
+    version: 1
+    toggleValues: Record<string, string>
+    updatedAt?: number
+    sourcePresetId?: number | null
+}
+
 export interface Chat{
     message: Message[]
     note:string
@@ -1689,6 +1873,8 @@ export interface Chat{
     lastDate?:number
     bookmarks?: string[];
     bookmarkNames?: { [chatId: string]: string };
+    promptOptionState?: ChatPromptOptionState
+    supaMemory?: boolean
 }
 
 export interface ChatFolder{
