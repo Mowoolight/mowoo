@@ -1,4 +1,4 @@
-import { alertMd } from "./alert"
+import { writable } from "svelte/store"
 
 export interface UpdateInfo {
     currentVersion: string
@@ -11,14 +11,18 @@ export interface UpdateInfo {
     disabled?: boolean
 }
 
-let cachedUpdateInfo: UpdateInfo | null = null
+/** Reactive store for update info — used by home screen and popup */
+export const updateInfoStore = writable<UpdateInfo | null>(null)
+
+/** Independent store for the update popup — does not collide with alertStore */
+export const updatePopupStore = writable<UpdateInfo | null>(null)
 
 export async function checkRisuUpdate(): Promise<UpdateInfo | null> {
     try {
         const res = await fetch('/api/update-check')
         if (!res.ok) return null
         const data: UpdateInfo = await res.json()
-        cachedUpdateInfo = data
+        updateInfoStore.set(data)
 
         if (data.hasUpdate) {
             showUpdatePopupOnce(data)
@@ -30,10 +34,6 @@ export async function checkRisuUpdate(): Promise<UpdateInfo | null> {
     }
 }
 
-export function getUpdateInfo(): UpdateInfo | null {
-    return cachedUpdateInfo
-}
-
 const DISMISSED_KEY = 'risuNodeOnly_dismissedUpdateVersion'
 
 function showUpdatePopupOnce(info: UpdateInfo) {
@@ -41,22 +41,9 @@ function showUpdatePopupOnce(info: UpdateInfo) {
     if (dismissed === info.latestVersion) return
 
     localStorage.setItem(DISMISSED_KEY, info.latestVersion)
+    updatePopupStore.set(info)
+}
 
-    const severityLabel = info.severity === 'required'
-        ? '**⚠ Required Update**'
-        : info.severity === 'outdated'
-        ? '**⚠ Your version is too old**'
-        : '**Update Available**'
-
-    const msg = [
-        `## ${severityLabel}`,
-        '',
-        `A new version **v${info.latestVersion}** is available (current: v${info.currentVersion}).`,
-        '',
-        info.releaseName ? `**${info.releaseName}**` : '',
-        '',
-        `[View release notes](${info.releaseUrl})`,
-    ].filter(Boolean).join('\n')
-
-    alertMd(msg)
+export function dismissUpdatePopup() {
+    updatePopupStore.set(null)
 }

@@ -26,6 +26,7 @@
     import HypaV3Modal from './lib/Others/HypaV3Modal.svelte';
     import HypaV3Progress from './lib/Others/HypaV3Progress.svelte';
     import PluginAlertModal from './lib/Others/PluginAlertModal.svelte';
+    import UpdatePopup from './lib/Others/UpdatePopup.svelte';
     import PopupList from './lib/UI/PopupList.svelte';
     import EasyPanel from './lib/Others/ProTools/EasyPanel.svelte';
     import sendSound from './etc/send.mp3'
@@ -224,6 +225,7 @@
         <HypaV3Progress />
     {/if}
     <PluginAlertModal />
+    <UpdatePopup />
     {#if popupStore.children}
         <PopupList />
     {/if}
