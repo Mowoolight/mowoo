@@ -195,7 +195,7 @@ async function tokenizeGoogleCloud(text:string) {
     const model = getModelInfo(db.aiModel)
 
     if(googleCloudTokenizedCache.has(text + model.internalID)){
-        const count = googleCloudTokenizedCache.get(text)
+        const count = googleCloudTokenizedCache.get(text + model.internalID)
         return new Uint32Array(count)
     }
 
