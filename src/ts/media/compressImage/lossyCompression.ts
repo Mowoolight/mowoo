@@ -28,11 +28,11 @@ export async function doLossyCompression(imageData: Uint8Array): Promise<Buffer>
             context.drawImage(image, 0, 0, width, height)
 
             // Try to convert to WebP
-            let base64 = canvas.toDataURL('image/webp', 75)
+            let base64 = canvas.toDataURL('image/webp', 0.75)
 
             // If WebP is not supported, convert to JPEG
             if (base64.indexOf('data:image/webp') != 0) {
-                base64 = canvas.toDataURL('image/jpeg', 75)
+                base64 = canvas.toDataURL('image/jpeg', 0.75)
             }
 
             const array = Buffer.from(base64.split(',')[1], 'base64')
