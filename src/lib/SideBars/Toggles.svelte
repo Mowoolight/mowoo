@@ -5,10 +5,10 @@
     import { language } from "src/lang";
     import type { PromptItem } from "src/ts/process/prompt";
     import type { character, groupChat } from "src/ts/storage/database.svelte";
-    import { getCurrentChat, snapshotToggleValues, snapshotCurrentToggleValues, applyToggleValues, saveTogglesToChat, type TogglePreset } from "src/ts/storage/database.svelte";
-    import { alertInput, alertConfirm, alertNormal, alertTogglePresets } from "src/ts/alert";
+    import { getCurrentChat, snapshotToggleValues, saveTogglesToChat } from "src/ts/storage/database.svelte";
+    import { alertConfirm, alertNormal, alertTogglePresets } from "src/ts/alert";
     import { tooltip } from "src/ts/gui/tooltip";
-    import { PinIcon, SaveIcon, BookmarkIcon, FolderOpenIcon } from "@lucide/svelte";
+    import { PinIcon, SaveIcon, FolderHeartIcon } from "@lucide/svelte";
     import Accordion from '../UI/Accordion.svelte'
     import CheckInput from "../UI/GUI/CheckInput.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
@@ -51,17 +51,7 @@
         alertNormal(language.togglePinSaved)
     }
 
-    async function saveAsPreset() {
-        const name = await alertInput(language.togglePresetNamePrompt)
-        if (!name) return
-        DBState.db.togglePresets ??= []
-        DBState.db.togglePresets.push({
-            name,
-            values: snapshotCurrentToggleValues()
-        })
-    }
-
-    async function loadPreset() {
+    async function openPresetList() {
         await alertTogglePresets()
     }
 
@@ -201,14 +191,9 @@
         </button>
     {/if}
     <button class="flex items-center justify-center px-3 rounded-md border border-darkborderc bg-darkbutton hover:bg-selected text-textcolor2 cursor-pointer transition-colors shadow-xs"
-        use:tooltip={language.toggleSaveAsPreset}
-        onclick={saveAsPreset}>
-        <BookmarkIcon size={16} />
-    </button>
-    <button class="flex items-center justify-center px-3 rounded-md border border-darkborderc bg-darkbutton hover:bg-selected text-textcolor2 cursor-pointer transition-colors shadow-xs"
-        use:tooltip={language.toggleLoadPreset}
-        onclick={loadPreset}>
-        <FolderOpenIcon size={16} />
+        use:tooltip={language.togglePresetList}
+        onclick={openPresetList}>
+        <FolderHeartIcon size={16} />
     </button>
 </div>
 
