@@ -224,23 +224,31 @@ export class HypaProcessorV2<TMetadata> {
 
       const MAX_CHUNKS = 16000;
       const MAX_INPUTS = 1000;
+      // voyage-context-3 API limit: 120,000 tokens per batch.
+      // Estimate conservatively: 2 chars per token (accounts for CJK/multilingual text).
+      const MAX_CHARS_PER_BATCH = 100000 * 2; // 100k token budget × 2 chars/token
       const batches: [TMetadata, EmbeddingText<TMetadata>[]][][] = [];
       let currentBatch: [TMetadata, EmbeddingText<TMetadata>[]][] = [];
       let currentChunkCount = 0;
+      let currentCharCount = 0;
 
       for (const entry of groupEntries) {
         const groupSize = entry[1].length;
+        const groupChars = entry[1].reduce((sum, item) => sum + item.content.length, 0);
         if (
           currentBatch.length > 0 &&
           (currentBatch.length + 1 > MAX_INPUTS ||
-           currentChunkCount + groupSize > MAX_CHUNKS)
+           currentChunkCount + groupSize > MAX_CHUNKS ||
+           currentCharCount + groupChars > MAX_CHARS_PER_BATCH)
         ) {
           batches.push(currentBatch);
           currentBatch = [];
           currentChunkCount = 0;
+          currentCharCount = 0;
         }
         currentBatch.push(entry);
         currentChunkCount += groupSize;
+        currentCharCount += groupChars;
       }
       if (currentBatch.length > 0) {
         batches.push(currentBatch);
