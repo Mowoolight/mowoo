@@ -30,7 +30,7 @@
         if (!saved) return 0
         const current = snapshotToggleValues()
         const allKeys = new Set([...Object.keys(saved), ...Object.keys(current)])
-        const norm = (v: string | undefined) => (!v || v === '0') ? '' : v
+        const norm = (v: string | undefined) => v ?? ''
         let count = 0
         for (const key of allKeys) {
             if (norm(saved[key]) !== norm(current[key])) count++
@@ -100,8 +100,7 @@
         const current = DBState.db.globalChatVariables[fullKey] ?? undefined
         const savedVal = saved[fullKey] ?? undefined
         if (current === savedVal) return false
-        // treat undefined (never touched), '0' (toggled off / default select), '' (cleared text) as equivalent
-        const norm = (v: string | undefined) => (!v || v === '0') ? '' : v
+        const norm = (v: string | undefined) => v ?? ''
         return norm(current) !== norm(savedVal)
     }
 

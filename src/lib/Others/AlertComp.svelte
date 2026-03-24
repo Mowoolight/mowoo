@@ -306,7 +306,7 @@
                 }}>OK</Button>
             {:else if $alertStore.type === 'input'}
                 <TextInput value={$alertStore.defaultValue} id="alert-input" autocomplete="off" marginTop list="alert-input-list" onkeydown={(e) => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && !e.isComposing) {
                         alertStore.set({
                             type: 'none',
                             //@ts-expect-error 'value' doesn't exist on Element, but target is HTMLInputElement here
@@ -708,15 +708,12 @@
                         <div class="flex items-center border border-darkborderc rounded-md hover:ring-1 hover:ring-green-500/50">
                             <button class="flex-1 min-w-0 p-2 text-left cursor-pointer text-textcolor truncate" onclick={async () => {
                                 const name = preset.name
-                                const hasCurrentValues = Object.keys(snapshotCurrentToggleValues()).length > 0
                                 const isMismatch = preset.promptPresetName !== currentPromptPresetName
-                                if (hasCurrentValues || isMismatch) {
-                                    const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
-                                    const confirmed = await alertConfirm(msg)
-                                    if (!confirmed) {
-                                        reopenPresets()
-                                        return
-                                    }
+                                const msg = isMismatch ? language.togglePresetMismatchConfirm : language.togglePresetApplyConfirm
+                                const confirmed = await alertConfirm(msg)
+                                if (!confirmed) {
+                                    reopenPresets()
+                                    return
                                 }
                                 applyToggleValues(preset.values)
                                 alertStore.set({ type: 'normal', msg: (language.togglePresetApplied as any)(name) })
@@ -860,15 +857,21 @@
                 if (!f) { reopenPresets(); return }
                 try {
                     const data = JSON.parse(Buffer.from(f.data).toString('utf-8'))
-                    if (typeof data.name !== 'string' || !data.values || typeof data.values !== 'object') {
+                    if (typeof data.name !== 'string' || !data.values || typeof data.values !== 'object' || Array.isArray(data.values)) {
                         alertError(language.togglePresetImportError)
                         return
+                    }
+                    const sanitizedValues: Record<string, string> = {}
+                    for (const [k, v] of Object.entries(data.values)) {
+                        if (typeof k === 'string' && typeof v === 'string') {
+                            sanitizedValues[k] = v
+                        }
                     }
                     DBState.db.togglePresets ??= []
                     DBState.db.togglePresets.push({
                         name: data.name,
-                        values: data.values,
-                        promptPresetName: data.promptPresetName
+                        values: sanitizedValues,
+                        promptPresetName: typeof data.promptPresetName === 'string' ? data.promptPresetName : undefined
                     })
                     DBState.db.togglePresets = [...DBState.db.togglePresets]
                     await alertNormalWait((language.togglePresetImported as any)(data.name))
