@@ -1,4 +1,4 @@
-import { type memoryVector, HypaProcesser, similarity } from "./hypamemory";
+import { HypaProcesser, similarity, type memoryVector, type VectorArray, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
 import { TaskRateLimiter } from "./taskRateLimiter";
 import {
     type EmbeddingText,
@@ -19,6 +19,7 @@ import { chatCompletion, unloadEngine } from "../webllm";
 import { hypaV3ProgressStore } from "src/ts/stores.svelte";
 import { type ChatTokenizer } from "src/ts/tokenizer";
 import { inlayTokenRegex } from "src/ts/util/inlayTokens";
+import { globalFetch } from "src/ts/globalApi.svelte";
 
 export interface HypaV3Preset {
     name: string;
@@ -1894,6 +1895,11 @@ class HypaProcesserEx extends HypaProcesser {
     summaryChunkVectors: SummaryChunkVector[] = [];
 
     async addSummaryChunks(chunks: SummaryChunk[]): Promise<void> {
+        if (this.model === 'voyageContext3') {
+            await this.addSummaryChunksVoyage(chunks);
+            return;
+        }
+
         // Maintain the superclass's caching structure by adding texts
         const texts = chunks.map((chunk) => chunk.text);
 
@@ -1904,21 +1910,157 @@ class HypaProcesserEx extends HypaProcesser {
 
         for (const chunk of chunks) {
             const vector = this.vectors.find((v) => v.content === chunk.text);
-
-            if (!vector) {
-                throw new Error(
-                    `Failed to create vector for summary chunk:\n${chunk.text}`
-                );
+            if (vector) {
+                newSummaryChunkVectors.push({ chunk, vector });
             }
-
-            newSummaryChunkVectors.push({
-                chunk,
-                vector,
-            });
         }
 
         // Append new SummaryChunkVectors to the existing collection
         this.summaryChunkVectors.push(...newSummaryChunkVectors);
+    }
+
+    private async addSummaryChunksVoyage(chunks: SummaryChunk[]): Promise<void> {
+        const db = getDatabase();
+        const apiKey = db.voyageApiKey?.trim();
+        if (!apiKey) {
+            throw new Error('Voyage Context 3 requires a Voyage API Key');
+        }
+
+        const cacheKeyFor = (text: string, groupTexts: string[]) => {
+            const ctxSuffix = groupTexts.length > 1
+                ? `|ctx:${contextHash(groupTexts)}`
+                : "";
+            return `${text}|voyageContext3${ctxSuffix}`;
+        };
+
+        // Group chunks by their parent summary
+        const summaryGroups = new Map<Summary, SummaryChunk[]>();
+        for (const chunk of chunks) {
+            const group = summaryGroups.get(chunk.summary) || [];
+            group.push(chunk);
+            summaryGroups.set(chunk.summary, group);
+        }
+
+        // Check cache and collect groups that need embedding
+        const groupsToEmbed: SummaryChunk[][] = [];
+        const cachedVectors = new Map<string, memoryVector>();
+
+        for (const [, group] of summaryGroups) {
+            const groupTexts = group.map(c => c.text);
+            let allCached = true;
+            const groupCached = new Map<string, memoryVector>();
+
+            for (const chunk of group) {
+                const key = cacheKeyFor(chunk.text, groupTexts);
+                const cached = await getPersistedHypaVector(key);
+                if (cached) {
+                    groupCached.set(chunk.text, cached);
+                } else {
+                    allCached = false;
+                    break;
+                }
+            }
+
+            if (allCached) {
+                for (const [text, vec] of groupCached) {
+                    cachedVectors.set(text + '|' + groupTexts.join('\0'), vec);
+                }
+            } else {
+                groupsToEmbed.push(group);
+            }
+        }
+
+        // Use cached vectors
+        for (const chunk of chunks) {
+            const group = summaryGroups.get(chunk.summary);
+            const groupTexts = group.map(c => c.text);
+            const cacheKey = chunk.text + '|' + groupTexts.join('\0');
+            const cached = cachedVectors.get(cacheKey);
+            if (cached) {
+                this.summaryChunkVectors.push({ chunk, vector: cached });
+            }
+        }
+
+        // Embed uncached groups via API
+        if (groupsToEmbed.length > 0) {
+            const batches = this.batchVoyageGroups(groupsToEmbed);
+
+            for (const batch of batches) {
+                const input = batch.map(group =>
+                    group.map(chunk => chunk.text)
+                );
+
+                const response = await globalFetch(
+                    "https://api.voyageai.com/v1/contextualizedembeddings",
+                    {
+                        headers: {
+                            "Authorization": "Bearer " + apiKey,
+                            "Content-Type": "application/json"
+                        },
+                        body: {
+                            "model": "voyage-context-3",
+                            "inputs": input,
+                            "input_type": "document"
+                        }
+                    }
+                );
+
+                if (!response.ok || !response.data.data) {
+                    throw new Error(JSON.stringify(response.data));
+                }
+
+                for (let i = 0; i < batch.length; i++) {
+                    const group = batch[i];
+                    const groupTexts = group.map(c => c.text);
+                    const groupEmbeddings = response.data.data[i].data;
+
+                    for (let j = 0; j < group.length; j++) {
+                        const chunk = group[j];
+                        const embedding = groupEmbeddings[j].embedding;
+
+                        const vector: memoryVector = {
+                            content: chunk.text,
+                            embedding
+                        };
+
+                        // Save to cache
+                        const key = cacheKeyFor(chunk.text, groupTexts);
+                        await setPersistedHypaVector(key, vector);
+
+                        this.summaryChunkVectors.push({ chunk, vector });
+                    }
+                }
+            }
+        }
+    }
+
+    private batchVoyageGroups(groups: SummaryChunk[][]): SummaryChunk[][][] {
+        const MAX_CHUNKS_PER_REQUEST = 16000;
+        const MAX_INPUTS_PER_REQUEST = 1000;
+        const batches: SummaryChunk[][][] = [];
+        let currentBatch: SummaryChunk[][] = [];
+        let currentChunkCount = 0;
+
+        for (const group of groups) {
+            const groupSize = group.length;
+            if (
+                currentBatch.length > 0 &&
+                (currentBatch.length + 1 > MAX_INPUTS_PER_REQUEST ||
+                 currentChunkCount + groupSize > MAX_CHUNKS_PER_REQUEST)
+            ) {
+                batches.push(currentBatch);
+                currentBatch = [];
+                currentChunkCount = 0;
+            }
+            currentBatch.push(group);
+            currentChunkCount += groupSize;
+        }
+
+        if (currentBatch.length > 0) {
+            batches.push(currentBatch);
+        }
+
+        return batches;
     }
 
     async similaritySearchScoredEx(

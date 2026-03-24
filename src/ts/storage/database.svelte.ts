@@ -223,6 +223,9 @@ export function setDatabase(data:Database){
     if(checkNullish(data.hypaMemoryKey)){
         data.hypaMemoryKey = ""
     }
+    if(checkNullish(data.voyageApiKey)){
+        data.voyageApiKey = ''
+    }
     if(checkNullish(data.supaModelType)){
         data.supaModelType = "none"
     }
@@ -911,6 +914,7 @@ export interface Database{
     useStreaming:boolean
     supaMemoryKey:string
     hypaMemoryKey:string
+    voyageApiKey:string
     supaModelType:string
     textScreenColor?:string
     textBorder?:boolean
@@ -2223,6 +2227,7 @@ export function setPreset(db:Database, newPres: botPreset){
             otherAx: {},
             overrides: {}
         }   
+    }
     }
     db.modelTools = safeStructuredClone(newPres.modelTools ?? [])
     db.verbosity = newPres.verbosity ?? 1
