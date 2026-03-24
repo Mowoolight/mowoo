@@ -2220,15 +2220,17 @@ export function setPreset(db:Database, newPres: botPreset){
         db.seperateParameters = safeStructuredClone(db.seperateParameters)
     }
     else{
-         db.seperateParameters = newPres.seperateParameters ? safeStructuredClone(newPres.seperateParameters) : {
-            memory: {},
-            emotion: {},
-            translate: {},
-            otherAx: {},
-            overrides: {}
-        }   
+        db.seperateParameters = newPres.seperateParameters
+            ? safeStructuredClone(newPres.seperateParameters)
+            : {
+                memory: {},
+                emotion: {},
+                translate: {},
+                otherAx: {},
+                overrides: {}
+            }
     }
-    }
+
     db.modelTools = safeStructuredClone(newPres.modelTools ?? [])
     db.verbosity = newPres.verbosity ?? 1
     db.dynamicOutput = newPres.dynamicOutput
