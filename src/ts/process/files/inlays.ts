@@ -83,8 +83,44 @@ type LRUEntry = {
     size: number
 }
 const inlayLRUCache = new Map<string, LRUEntry>()
-const MAX_CACHE_SIZE = 500 * 1024 * 1024 // 500 MB
 let totalLRUSize = 0
+
+const MB = 1024 * 1024
+
+function getNavigatorDeviceMemory(): number | undefined {
+    if (typeof navigator === 'undefined') {
+        return undefined
+    }
+
+    const value = (navigator as Navigator & { deviceMemory?: number }).deviceMemory
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        return undefined
+    }
+
+    return value
+}
+
+function getInlayCacheLimit(deviceMemory = getNavigatorDeviceMemory()): number {
+    if (deviceMemory === undefined) {
+        return 192 * MB
+    }
+
+    if (deviceMemory <= 2) {
+        return 48 * MB
+    }
+
+    if (deviceMemory <= 4) {
+        return 96 * MB
+    }
+
+    if (deviceMemory <= 8) {
+        return 192 * MB
+    }
+
+    return 256 * MB
+}
+
+const INLAY_CACHE_LIMIT = getInlayCacheLimit()
 
 function lruGet(id: string): InlayAsset | null {
     const entry = inlayLRUCache.get(id)
@@ -100,10 +136,10 @@ function lruSet(id: string, asset: InlayAsset): void {
     inlayLRUCache.set(id, { asset, lastAccessed: Date.now(), size })
     totalLRUSize += size
     // evict oldest entries if over limit
-    if (totalLRUSize > MAX_CACHE_SIZE) {
+    if (totalLRUSize > INLAY_CACHE_LIMIT) {
         const sorted = [...inlayLRUCache.entries()].sort((a, b) => a[1].lastAccessed - b[1].lastAccessed)
         for (const [key, entry] of sorted) {
-            if (totalLRUSize <= MAX_CACHE_SIZE) break
+            if (totalLRUSize <= INLAY_CACHE_LIMIT) break
             inlayLRUCache.delete(key)
             totalLRUSize -= entry.size
         }

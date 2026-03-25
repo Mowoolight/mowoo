@@ -383,7 +383,8 @@ export async function saveDb() {
         })
         $effect(() => {
             try { $state.snapshot(DBState.db.modules) } catch (e) {
-                console.warn('[Save] $state.snapshot(modules) failed, possible circular reference in module data:', e)
+                console.warn('[Save] $state.snapshot(modules) failed:', e)
+                return
             }
             if (!didInitModulesEffect) {
                 didInitModulesEffect = true
@@ -565,7 +566,7 @@ export async function saveDb() {
                 if (conflictErr instanceof ConflictError) {
                     console.warn('[Save] Full-write conflict detected, rebasing tracked local changes on latest server DB...')
                     await rebaseTrackedLocalChangesOnLatestServerDb(conflictErr.currentEtag ?? null, db, toSave)
-                    await sleep(100)
+                    await sleep(Math.min(500 * (savetrys + 1), 3000))
                     return 'retry'
                 }
                 throw conflictErr
@@ -630,14 +631,15 @@ export async function saveDb() {
                 }
             } catch (error) {
                 requeueTrackedChanges(toSave)
-                changed = true
                 savetrys += 1
                 if (savetrys > 4) {
                     alertError(error)
                 }
                 else {
                     console.error(error)
+                    await sleep(Math.min(500 * savetrys, 3000))
                 }
+                changed = true
             } finally {
                 saving.state = false
                 saveInFlight = null
@@ -1593,7 +1595,7 @@ export async function fetchNative(url: string, arg: {
         }
 
         if (realBody) {
-            proxyHeaders["Content-Type"] = headers["Content-Type"] ?? headers["content-type"] ?? "application/octet-stream"
+            proxyHeaders["Content-Type"] = headers["Content-Type"] ?? headers["content-type"] ?? "application/json"
         }
 
         const r = await fetch(`/proxy2`, {

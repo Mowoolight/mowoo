@@ -33,6 +33,7 @@ export const botMakerMode = writable(false)
 export const moduleBackgroundEmbedding = writable('')
 export const openPresetList = writable(false)
 export const openPersonaList = writable(false)
+export const openHypaV3PresetList = writable(false)
 export const bookmarkListOpen = writable(false)
 export const MobileGUI = writable(false)
 export const MobileGUIStack = writable(0)
@@ -170,7 +171,8 @@ $effect.root(() => {
     })
     $effect(() => {
         try { $state.snapshot(DBState.db.modules) } catch (e) {
-            console.warn('[ModuleUpdate] $state.snapshot(modules) failed, possible circular reference in module data:', e)
+            console.warn('[ModuleUpdate] $state.snapshot(modules) failed:', e)
+            return
         }
         DBState?.db?.enabledModules
         DBState?.db?.enabledModules?.length

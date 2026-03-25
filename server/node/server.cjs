@@ -67,6 +67,14 @@ function invalidateDbCache() {
 }
 
 function shouldCompress(req, res) {
+    // Proxy/hub-proxy: pass through external responses without compression.
+    // Original upstream server has no compression middleware at all,
+    // so proxy responses were never compressed in the first place.
+    const url = req.originalUrl || req.url;
+    if (url.startsWith('/proxy') || url.startsWith('/hub-proxy')) {
+        return false;
+    }
+
     const contentType = String(res.getHeader('Content-Type') || '').toLowerCase();
     if (contentType.includes('text/event-stream')) {
         return false;
@@ -892,8 +900,7 @@ const reverseProxyFunc = async (req, res, next) => {
         originalResponse = await fetch(urlParam, {
             method: req.method,
             headers: header,
-            body: requestBody,
-            duplex: requestBody ? 'half' : undefined
+            body: requestBody
         });
         // get response body as stream
         const originalBody = originalResponse.body;
@@ -918,6 +925,7 @@ const reverseProxyFunc = async (req, res, next) => {
 
     }
     catch (err) {
+        console.error('[Proxy]', req.method, urlParam, err?.cause || err);
         next(err);
         return;
     }
