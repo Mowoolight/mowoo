@@ -63,6 +63,22 @@ export async function makeHashedStorageKey(prefix: string, rawKey: string): Prom
     return `${prefix}${hash}.json`;
 }
 
+export async function readPersistentJsonBulk<T>(storageKeys: string[]): Promise<(T | null)[]> {
+    if (storageKeys.length === 0) return [];
+    await ensureStorageReady();
+    const items = await forageStorage.getItems(storageKeys);
+    const resultMap = new Map<string, T>();
+    for (const { key, value } of items) {
+        if (!value) continue;
+        try {
+            resultMap.set(key, JSON.parse(decoder.decode(value)) as T);
+        } catch {
+            // ignore parse errors
+        }
+    }
+    return storageKeys.map(k => resultMap.get(k) ?? null);
+}
+
 export function makeEncodedStorageKey(prefix: string, rawKey: string): string {
     return `${prefix}${encodeKeyComponent(rawKey)}.json`;
 }

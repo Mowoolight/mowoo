@@ -2,7 +2,7 @@ import { globalFetch } from "src/ts/globalApi.svelte";
 import { runEmbedding } from "../transformers";
 import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
-import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
+import { makeHashedStorageKey, readPersistentJson, readPersistentJsonBulk, writePersistentJson } from "src/ts/storage/persistentKv";
 
 export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'
 // In a typical environment, bge-m3 is a heavy model.
@@ -61,6 +61,46 @@ export async function setPersistedHypaVector(cacheKey: string, value: memoryVect
         key: cacheKey,
         value: normalizedValue
     })
+}
+
+export async function getPersistedHypaVectorsBulk(cacheKeys: string[]): Promise<(memoryVector | undefined)[]> {
+    if (cacheKeys.length === 0) return [];
+
+    const results: (memoryVector | undefined)[] = new Array(cacheKeys.length).fill(undefined);
+
+    // Check in-memory cache first, collect storage misses
+    const missIndices: number[] = [];
+    const missKeys: string[] = [];
+    for (let i = 0; i < cacheKeys.length; i++) {
+        if (hypaVectorCache.has(cacheKeys[i])) {
+            results[i] = hypaVectorCache.get(cacheKeys[i]);
+        } else {
+            missIndices.push(i);
+            missKeys.push(cacheKeys[i]);
+        }
+    }
+
+    if (missIndices.length === 0) return results;
+
+    // Compute storage keys for all misses in parallel
+    const missStorageKeys = await Promise.all(
+        missKeys.map(key => makeHashedStorageKey(hypaVectorCachePrefix, key))
+    );
+
+    // Bulk read from storage (single HTTP request)
+    const payloads = await readPersistentJsonBulk<{ key: string, value: memoryVector }>(missStorageKeys);
+
+    for (let i = 0; i < missIndices.length; i++) {
+        const originalIndex = missIndices[i];
+        const cacheKey = missKeys[i];
+        const payload = payloads[i];
+        if (payload && payload.key === cacheKey) {
+            hypaVectorCache.set(cacheKey, payload.value);
+            results[originalIndex] = payload.value;
+        }
+    }
+
+    return results;
 }
 
 export class HypaProcesser{

@@ -1,4 +1,4 @@
-import { type HypaModel, localModels, getPersistedHypaVector, setPersistedHypaVector, contextHash } from "./hypamemory";
+import { type HypaModel, localModels, getPersistedHypaVector, getPersistedHypaVectorsBulk, setPersistedHypaVector, contextHash } from "./hypamemory";
 import { TaskRateLimiter, TaskCanceledError } from "./taskRateLimiter";
 import { runEmbedding } from "../transformers";
 import { globalFetch } from "src/ts/globalApi.svelte";
@@ -125,26 +125,39 @@ export class HypaProcessorV2<TMetadata> {
       }
     }
 
-    // Load cache
-    const loadPromises = ebdTexts.map(async (item, index) => {
-      const { id, content, metadata } = item;
+    // Load cache (bulk: single HTTP request instead of N concurrent requests)
+    // Step 1: check in-memory vectors
+    const memoryMissItems: EmbeddingText<TMetadata>[] = [];
+    for (const item of ebdTexts) {
+      if (this.vectors.has(item.id)) {
+        resultMap.set(item.id, this.vectors.get(item.id));
+      } else {
+        memoryMissItems.push(item);
+      }
+    }
 
-      // Use if already in memory
-      if (this.vectors.has(id)) {
-        resultMap.set(id, this.vectors.get(id));
-        return;
+    // Step 2: bulk fetch from persistent cache for memory misses
+    if (memoryMissItems.length > 0) {
+      const cacheKeys = memoryMissItems.map(item =>
+        this.getCacheKey(item.content, voyageCtx.get(item.id))
+      );
+      let cachedResults: (import("./hypamemory").memoryVector | undefined)[];
+      try {
+        cachedResults = await getPersistedHypaVectorsBulk(cacheKeys);
+      } catch {
+        cachedResults = new Array(memoryMissItems.length).fill(undefined);
       }
 
-      try {
-        const cached = await getPersistedHypaVector(
-          this.getCacheKey(content, voyageCtx.get(id))
-        ) as EmbeddingResult<TMetadata> | undefined;
+      for (let i = 0; i < memoryMissItems.length; i++) {
+        const item = memoryMissItems[i];
+        const { id, metadata } = item;
+        const cached = cachedResults[i] as EmbeddingResult<TMetadata> | undefined;
 
         if (cached) {
           // Debug log for cache hit
           console.debug(
             HypaProcessorV2.LOG_PREFIX,
-            `Cache hit for getting embedding ${index} with model ${this.options.model}`
+            `Cache hit for getting embedding with model ${this.options.model}`
           );
 
           // Add metadata
@@ -159,12 +172,8 @@ export class HypaProcessorV2<TMetadata> {
         } else {
           toEmbed.push(item);
         }
-      } catch (error) {
-        toEmbed.push(item);
       }
-    });
-
-    await Promise.all(loadPromises);
+    }
 
     // For voyage-context-3: if any item in a group has cache miss,
     // re-embed the entire group
