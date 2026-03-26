@@ -1227,7 +1227,9 @@ export const languageKorean = {
         "enableSimilarityCorrectionLabel": "유사도 보정 활성화",
         "preserveOrphanedMemoryLabel": "고아 메모리 보존",
         "applyRegexScriptWhenRerollingLabel": "재생성 시 정규식 스크립트 적용",
-        "doNotSummarizeUserMessageLabel": "유저 메시지 요약하지 않기"
+        "doNotSummarizeUserMessageLabel": "유저 메시지 요약하지 않기",
+        "voyageRerankEnabledLabel": "Voyage Reranker 활성화 (rerank-2.5)",
+        "voyageRerankTopKLabel": "Rerank Top-K 후보 수"
     },
     "hypaV3Modal": {
         "titleLabel": "HypaV3",

@@ -1344,6 +1344,8 @@ export const languageEnglish = {
         preserveOrphanedMemoryLabel: "Preserve Orphaned Memory",
         applyRegexScriptWhenRerollingLabel: "Apply Regex Script When Rerolling",
         doNotSummarizeUserMessageLabel: "Do Not Summarize User Message",
+        voyageRerankEnabledLabel: "Enable Voyage Reranker (rerank-2.5)",
+        voyageRerankTopKLabel: "Rerank Top-K Candidates",
     },
     hypaV3Modal: {
         titleLabel: "HypaV3",

@@ -38,6 +38,7 @@ export interface HypaV3Settings {
     preserveOrphanedMemory: boolean;
     processRegexScript: boolean;
     doNotSummarizeUserMessage: boolean;
+    voyageRerankEnabled: boolean;
     // Experimental
     useExperimentalImpl: boolean;
     summarizationRequestsPerMinute: number;
@@ -729,10 +730,46 @@ async function hypaMemoryV3MainExp(
                     (listIndex) => queries[listIndex].weight
                 );
 
-                const rankedSummaries = childToParentRRF<
-                    EmbeddingResult<Summary>,
-                    Summary
-                >(rankedChunks, (chunk) => chunk.metadata);
+                let rankedSummaries: Summary[];
+
+                // Voyage Reranker
+                if (settings.voyageRerankEnabled && db.voyageApiKey?.trim()) {
+                    const topK = db.voyageRerankTopK || 40;
+                    const candidateChunks = rankedChunks.slice(0, topK);
+
+                    console.log(
+                        logPrefix,
+                        `Starting Voyage rerank with ${candidateChunks.length} candidates`
+                    );
+                    const rerankStartTime = performance.now();
+
+                    const rerankedChunks = await rerankSummaries(
+                        candidateChunks,
+                        queries.map((q) => q.content),
+                        topK
+                    );
+
+                    const rerankEndTime = performance.now();
+                    console.debug(
+                        `${logPrefix} Voyage rerank completed in ${rerankEndTime - rerankStartTime}ms`
+                    );
+
+                    // Deduplicate parent summaries while preserving rerank order
+                    const seen = new Set<Summary>();
+                    rankedSummaries = [];
+                    for (const chunk of rerankedChunks) {
+                        const parent = chunk.metadata;
+                        if (!seen.has(parent)) {
+                            seen.add(parent);
+                            rankedSummaries.push(parent);
+                        }
+                    }
+                } else {
+                    rankedSummaries = childToParentRRF<
+                        EmbeddingResult<Summary>,
+                        Summary
+                    >(rankedChunks, (chunk) => chunk.metadata);
+                }
 
                 while (rankedSummaries.length > 0) {
                     const summary = rankedSummaries.shift();
@@ -1400,10 +1437,46 @@ async function hypaMemoryV3Main(
                     }
                 );
 
-                const rankedSummaries = childToParentRRF<SummaryChunk, Summary>(
-                    rankedChunks,
-                    (chunk) => chunk.summary
-                );
+                let rankedSummaries: Summary[];
+
+                // Voyage Reranker
+                if (settings.voyageRerankEnabled && db.voyageApiKey?.trim()) {
+                    const topK = db.voyageRerankTopK || 40;
+                    const candidateChunks = rankedChunks.slice(0, topK);
+
+                    console.log(
+                        logPrefix,
+                        `Starting Voyage rerank (exp) with ${candidateChunks.length} candidates`
+                    );
+                    const rerankStartTime = performance.now();
+
+                    const rerankedChunks = await rerankSummaries(
+                        candidateChunks,
+                        queries,
+                        topK
+                    );
+
+                    const rerankEndTime = performance.now();
+                    console.debug(
+                        `${logPrefix} Voyage rerank (exp) completed in ${rerankEndTime - rerankStartTime}ms`
+                    );
+
+                    // Deduplicate parent summaries while preserving rerank order
+                    const seen = new Set<Summary>();
+                    rankedSummaries = [];
+                    for (const chunk of rerankedChunks) {
+                        const parent = chunk.summary;
+                        if (!seen.has(parent)) {
+                            seen.add(parent);
+                            rankedSummaries.push(parent);
+                        }
+                    }
+                } else {
+                    rankedSummaries = childToParentRRF<SummaryChunk, Summary>(
+                        rankedChunks,
+                        (chunk) => chunk.summary
+                    );
+                }
 
                 while (rankedSummaries.length > 0) {
                     const summary = rankedSummaries.shift();
@@ -1771,6 +1844,7 @@ export function createHypaV3Preset(
         preserveOrphanedMemory: false,
         processRegexScript: false,
         doNotSummarizeUserMessage: false,
+        voyageRerankEnabled: false,
         // Experimental
         useExperimentalImpl: false,
         summarizationRequestsPerMinute: 20,
@@ -1859,6 +1933,71 @@ function childToParentRRF<C, P>(
     return Array.from(scores.entries())
         .sort((a, b) => b[1] - a[1])
         .map(([parent]) => parent);
+}
+
+interface VoyageRerankResult {
+    index: number;
+    relevance_score: number;
+}
+
+async function voyageRerank(
+    query: string,
+    documents: string[],
+    topK: number
+): Promise<VoyageRerankResult[]> {
+    const db = getDatabase();
+    const apiKey = db.voyageApiKey?.trim();
+
+    if (!apiKey) {
+        throw new Error("Voyage Rerank requires a Voyage API Key");
+    }
+
+    if (documents.length === 0) {
+        return [];
+    }
+
+    const response = await globalFetch(
+        "https://api.voyageai.com/v2/rerank",
+        {
+            headers: {
+                "Authorization": "Bearer " + apiKey,
+                "Content-Type": "application/json",
+            },
+            body: {
+                model: "rerank-2.5",
+                query,
+                documents,
+                top_k: Math.min(topK, documents.length),
+            },
+        }
+    );
+
+    if (!response.ok || !response.data?.data) {
+        throw new Error(
+            `Voyage Rerank API error: ${JSON.stringify(response.data)}`
+        );
+    }
+
+    return response.data.data;
+}
+
+async function rerankSummaries<T extends { content?: string; text?: string }>(
+    candidates: T[],
+    queries: string[],
+    topK: number
+): Promise<T[]> {
+    const documents = candidates.map(
+        (c) => (c.content ?? (c as any).text ?? "").trim()
+    );
+
+    // Combine multiple queries into a single reranking query
+    const combinedQuery = queries.join("\n\n");
+
+    const rerankResults = await voyageRerank(combinedQuery, documents, topK);
+
+    return rerankResults
+        .sort((a, b) => b.relevance_score - a.relevance_score)
+        .map((r) => candidates[r.index]);
 }
 
 function normalizeScores<T>(scoredList: [T, number][]): [T, number][] {

@@ -1240,6 +1240,13 @@
                             <Help key="hypaV3EnableSimilarityCorrection"/>
                         </div>
                     {/if}
+                    <div class="mb-2 flex items-center">
+                        <Check name={language.hypaV3Settings.voyageRerankEnabledLabel} bind:check={settings.voyageRerankEnabled} />
+                    </div>
+                    {#if settings.voyageRerankEnabled}
+                        <span class="text-textcolor">{language.hypaV3Settings.voyageRerankTopKLabel}</span>
+                        <NumberInput marginBottom size="sm" min={5} max={200} bind:value={DBState.db.voyageRerankTopK} />
+                    {/if}
                 </Accordion>
             {/if}
 
