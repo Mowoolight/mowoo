@@ -1957,7 +1957,7 @@ async function voyageRerank(
     }
 
     const response = await globalFetch(
-        "https://api.voyageai.com/v2/rerank",
+        "https://api.voyageai.com/v1/rerank",
         {
             headers: {
                 "Authorization": "Bearer " + apiKey,
