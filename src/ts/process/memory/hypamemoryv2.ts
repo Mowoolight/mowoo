@@ -160,15 +160,15 @@ export class HypaProcessorV2<TMetadata> {
             `Cache hit for getting embedding with model ${this.options.model}`
           );
 
-          // Create a copy to avoid mutating the shared cache object
-          const result: EmbeddingResult<TMetadata> = { ...cached, id, metadata };
+          // Add metadata
+          cached.metadata = metadata;
 
           // Save to memory
           if (saveToMemory) {
-            this.vectors.set(id, result);
+            this.vectors.set(id, cached);
           }
 
-          resultMap.set(id, result);
+          resultMap.set(id, cached);
         } else {
           toEmbed.push(item);
         }
