@@ -30,14 +30,21 @@
     oncontextmenu,
     chaId
   }: Props = $props();
+
+  function handleContextMenu(e: MouseEvent & {
+    currentTarget: EventTarget & HTMLDivElement;
+  }) {
+    e.preventDefault();
+    oncontextmenu?.(e);
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<span class="flex shrink-0 items-center justify-center avatar"
+<span class="flex shrink-0 items-center justify-center avatar sidebar-touch-target"
       class:border = {bordered}
       class:border-selected={bordered}
       class:rounded-md={bordered}
-      oncontextmenu={oncontextmenu}
+      oncontextmenu={handleContextMenu}
       onclick={onClick} use:tooltipRight={name}
       role="button"
       tabindex="0"
@@ -46,8 +53,8 @@
   {#if src}
     {#if src === "slot"}
       {#await backgroundimg}
-      <div
-        class="bg-skin-border sidebar-avatar rounded-md bg-top flex items-center justify-center {
+        <div
+        class="bg-skin-border sidebar-avatar sidebar-touch-target rounded-md bg-top flex items-center justify-center {
           color === 'red' ? 'bg-red-700/50' :
           color === 'yellow' ? 'bg-yellow-700/50' :
           color === 'green' ? 'bg-green-700/50' :
@@ -64,7 +71,7 @@
       ></div>
       {:then resolvedBgImg}
       <div
-        class="bg-skin-border sidebar-avatar rounded-md bg-top flex items-center justify-center {
+        class="bg-skin-border sidebar-avatar sidebar-touch-target rounded-md bg-top flex items-center justify-center {
           color === 'red' ? 'bg-red-700/50' :
           color === 'yellow' ? 'bg-yellow-700/50' :
           color === 'green' ? 'bg-green-700/50' :
@@ -99,7 +106,7 @@
       {:then img}
         <img
           src={img}
-          class="bg-skin-border sidebar-avatar rounded-md object-cover object-top"
+          class="bg-skin-border sidebar-avatar sidebar-touch-target rounded-md object-cover object-top"
           style:width={size + "px"}
           style:height={size + "px"}
           style:minWidth={size + "px"}
@@ -110,7 +117,7 @@
     {/if}
   {:else}
     <div
-      class="bg-skin-border sidebar-avatar rounded-md bg-top"
+      class="bg-skin-border sidebar-avatar sidebar-touch-target rounded-md bg-top"
       style:width={size + "px"}
       style:height={size + "px"}
       style:minWidth={size + "px"}
@@ -118,3 +125,11 @@
 ></div>
   {/if}
 </span>
+
+<style>
+  .sidebar-touch-target {
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+</style>

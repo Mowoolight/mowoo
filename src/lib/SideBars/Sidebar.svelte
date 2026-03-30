@@ -52,6 +52,9 @@
   import DevTool from "./DevTool.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
     import PluginDefinedIcon from "../Others/PluginDefinedIcon.svelte";
+  const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
+  const touchDragEnabled = $derived(isTouchDevice && !DBState.db.disableMobileDragDrop);
+
   let sideBarMode = $state(0);
   let editMode = $state(false);
   let menuMode = $state(0);
@@ -353,6 +356,135 @@
     e.stopPropagation()
     return false
   }
+
+  // Touch long-press drag for mobile devices
+  let touchDragState: {
+    data: DragData
+    element: HTMLElement
+    ghost: HTMLElement | null
+    highlighted: HTMLElement | null
+  } | null = null
+  let touchDragTimer = 0
+  let touchStartPos = { x: 0, y: 0 }
+  let suppressNextClick = false
+
+  function onTouchDragStart(data: DragData, e: TouchEvent & { currentTarget: HTMLElement }) {
+    const touch = e.touches[0]
+    touchStartPos = { x: touch.clientX, y: touch.clientY }
+    const el = e.currentTarget
+
+    if (touchDragTimer) clearTimeout(touchDragTimer)
+    touchDragTimer = window.setTimeout(() => {
+      touchDragState = { data, element: el, ghost: null, highlighted: null }
+      el.style.opacity = '0.4'
+      try { navigator.vibrate?.(30) } catch {}
+
+      const rect = el.getBoundingClientRect()
+      const ghost = el.cloneNode(true) as HTMLElement
+      ghost.style.cssText = `position:fixed;pointer-events:none;z-index:9999;opacity:0.7;width:${rect.width}px;left:${touch.clientX - rect.width / 2}px;top:${touch.clientY - rect.height / 2}px;`
+      document.body.appendChild(ghost)
+      touchDragState.ghost = ghost
+    }, 400)
+  }
+
+  function onTouchDragMove(e: TouchEvent) {
+    const touch = e.touches[0]
+
+    if (!touchDragState) {
+      const dx = Math.abs(touch.clientX - touchStartPos.x)
+      const dy = Math.abs(touch.clientY - touchStartPos.y)
+      if (dx > 8 || dy > 8) {
+        if (touchDragTimer) { clearTimeout(touchDragTimer); touchDragTimer = 0 }
+      }
+      return
+    }
+
+    e.preventDefault()
+
+    if (touchDragState.ghost) {
+      const rect = touchDragState.element.getBoundingClientRect()
+      touchDragState.ghost.style.left = `${touch.clientX - rect.width / 2}px`
+      touchDragState.ghost.style.top = `${touch.clientY - rect.height / 2}px`
+    }
+
+    // Find drop target under finger
+    if (touchDragState.ghost) touchDragState.ghost.style.display = 'none'
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+    if (touchDragState.ghost) touchDragState.ghost.style.display = ''
+
+    if (touchDragState.highlighted) {
+      touchDragState.highlighted.classList.remove('bg-green-500', 'ring-2', 'ring-green-400')
+      touchDragState.highlighted = null
+    }
+
+    if (!el) return
+    const spacer = el.closest('[data-spacer-index]') as HTMLElement | null
+    const item = el.closest('[data-drag-index]') as HTMLElement | null
+
+    if (spacer) {
+      spacer.classList.add('bg-green-500')
+      touchDragState.highlighted = spacer
+    } else if (item && item !== touchDragState.element) {
+      item.classList.add('ring-2', 'ring-green-400')
+      touchDragState.highlighted = item
+    }
+  }
+
+  function cleanupTouchDrag() {
+    if (touchDragTimer) { clearTimeout(touchDragTimer); touchDragTimer = 0 }
+    if (!touchDragState) return false
+    touchDragState.element.style.opacity = ''
+    if (touchDragState.highlighted) {
+      touchDragState.highlighted.classList.remove('bg-green-500', 'ring-2', 'ring-green-400')
+    }
+    if (touchDragState.ghost) touchDragState.ghost.remove()
+    touchDragState = null
+    return true
+  }
+
+  function onTouchDragEnd(e: TouchEvent) {
+    if (touchDragTimer) { clearTimeout(touchDragTimer); touchDragTimer = 0 }
+    if (!touchDragState) return
+
+    const touch = e.changedTouches[0]
+
+    if (touchDragState.ghost) touchDragState.ghost.style.display = 'none'
+    const el = document.elementFromPoint(touch.clientX, touch.clientY)
+
+    const spacer = el?.closest('[data-spacer-index]') as HTMLElement | null
+    const item = el?.closest('[data-drag-index]') as HTMLElement | null
+
+    if (spacer) {
+      const idx = parseInt(spacer.dataset.spacerIndex!)
+      const folder = spacer.dataset.spacerFolder || undefined
+      inserter(touchDragState.data, { index: idx, folder })
+    } else if (item && item !== touchDragState.element) {
+      const idx = parseInt(item.dataset.dragIndex!)
+      const folder = item.dataset.dragFolder || undefined
+      createFolder(touchDragState.data, { index: idx, folder })
+    }
+
+    cleanupTouchDrag()
+    suppressNextClick = true
+    requestAnimationFrame(() => { suppressNextClick = false })
+  }
+
+  function onTouchDragCancel() {
+    cleanupTouchDrag()
+  }
+
+  function touchDragContainer(node: HTMLElement) {
+    node.addEventListener('touchmove', onTouchDragMove, { passive: false })
+    node.addEventListener('touchend', onTouchDragEnd)
+    node.addEventListener('touchcancel', onTouchDragCancel)
+    return {
+      destroy() {
+        node.removeEventListener('touchmove', onTouchDragMove)
+        node.removeEventListener('touchend', onTouchDragEnd)
+        node.removeEventListener('touchcancel', onTouchDragCancel)
+      }
+    }
+  }
 </script>
 {#if DBState.db.menuSideBar}
 <div
@@ -506,8 +638,8 @@
     {/if}
   </div>
   {/if}
-  <div class="flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0">
-    <div class="h-4 min-h-4 w-14" role="listitem" ondragover={(e) => {
+  <div class="flex grow w-full flex-col items-center overflow-x-hidden overflow-y-auto pr-0" use:touchDragContainer>
+    <div class="h-4 min-h-4 w-14" role="listitem" data-spacer-index="0" ondragover={(e) => {
       e.preventDefault()
       e.dataTransfer.dropEffect = 'move'
       e.currentTarget.classList.add('bg-green-500')
@@ -524,11 +656,13 @@
     {#each charImages as char, ind}
       <div class="group relative flex items-center px-2"
         role="listitem"
-        draggable="true"
-        ondragstart={(e) => {avatarDragStart({index:ind}, e)}}
-        ondragover={avatarDragOver}
-        ondrop={(e) => {avatarDrop({index:ind}, e)}}
-        ondragenter={preventAll}
+        data-drag-index={ind}
+        draggable={!isTouchDevice ? "true" : undefined}
+        ondragstart={!isTouchDevice ? (e) => {avatarDragStart({index:ind}, e)} : undefined}
+        ondragover={!isTouchDevice ? avatarDragOver : undefined}
+        ondrop={!isTouchDevice ? (e) => {avatarDrop({index:ind}, e)} : undefined}
+        ondragenter={!isTouchDevice ? preventAll : undefined}
+        ontouchstart={touchDragEnabled ? (e) => {onTouchDragStart({index:ind}, e)} : undefined}
       >
         <SidebarIndicator
           isActive={char.type === 'normal' && $selectedCharID === char.index && sideBarMode !== 1}
@@ -537,6 +671,7 @@
         <div
             role="button" tabindex="0"
             onclick={() => {
+              if(suppressNextClick) return
               if(char.type === "normal"){
                 changeChar(char.index, {reseter});
               }
@@ -625,6 +760,7 @@
                 }
               }}
               onClick={() => {
+                if(suppressNextClick) return
                 if(char.type !== 'folder'){
                   return
                 }
@@ -664,7 +800,7 @@
             char.color === 'pink' ? 'bg-pink-700/20' :
             'bg-darkbg/20'
           }"></div>
-          <div class="h-4 min-h-4 w-14 relative z-10" role="listitem" ondragover={(e) => {
+          <div class="h-4 min-h-4 w-14 relative z-10" role="listitem" data-spacer-index="0" data-spacer-folder={char.type === 'folder' ? char.id : undefined} ondragover={(e) => {
             e.preventDefault()
             e.dataTransfer.dropEffect = 'move'
             e.currentTarget.classList.add('bg-green-500')
@@ -681,11 +817,14 @@
           {#each char.folder as char2, ind}
               <div class="group relative flex items-center px-2 z-10"
               role="listitem"
-              draggable="true"
-              ondragstart={(e) => {if(char.type === 'folder'){avatarDragStart({index: ind, folder:char.id}, e)}}}
-              ondragover={avatarDragOver}
-              ondrop={(e) => {if(char.type === 'folder'){avatarDrop({index: ind, folder:char.id}, e)}}}
-              ondragenter={preventAll}
+              data-drag-index={ind}
+              data-drag-folder={char.type === 'folder' ? char.id : undefined}
+              draggable={!isTouchDevice ? "true" : undefined}
+              ondragstart={!isTouchDevice ? (e) => {if(char.type === 'folder'){avatarDragStart({index: ind, folder:char.id}, e)}} : undefined}
+              ondragover={!isTouchDevice ? avatarDragOver : undefined}
+              ondrop={!isTouchDevice ? (e) => {if(char.type === 'folder'){avatarDrop({index: ind, folder:char.id}, e)}} : undefined}
+              ondragenter={!isTouchDevice ? preventAll : undefined}
+              ontouchstart={touchDragEnabled && char.type === 'folder' ? (e) => {onTouchDragStart({index: ind, folder:char.id}, e)} : undefined}
             >
               <SidebarIndicator
                 isActive={$selectedCharID === char2.index && sideBarMode !== 1}
@@ -694,6 +833,7 @@
               <div
                   role="button" tabindex="0"
                   onclick={() => {
+                    if(suppressNextClick) return
                     if(char2.type === "normal"){
                       changeChar(char2.index, {reseter});
                     }
@@ -715,7 +855,7 @@
                 />
               </div>
             </div>
-            <div class="h-4 min-h-4 w-14 relative z-20" role="listitem" ondragover={(e) => {
+            <div class="h-4 min-h-4 w-14 relative z-20" role="listitem" data-spacer-index={ind+1} data-spacer-folder={char.type === 'folder' ? char.id : undefined} ondragover={(e) => {
               e.preventDefault()
               e.dataTransfer.dropEffect = 'move'
               e.currentTarget.classList.add('bg-green-500')
@@ -733,7 +873,7 @@
         </div>
         {/key}
       {/if}
-      <div class="h-4 min-h-4 w-14" role="listitem" ondragover={((e) => {
+      <div class="h-4 min-h-4 w-14" role="listitem" data-spacer-index={ind+1} ondragover={((e) => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
         e.currentTarget.classList.add('bg-green-500')

@@ -1313,6 +1313,7 @@ export const languageKorean = {
     "auxModelUnderModelSettings": "보조 모델 분리를 모델 설정에 표시",
     "showModelInSidebar": "사이드바에 모델 선택 표시",
     "showPersonaInSidebar": "사이드바에 페르소나 바인딩 표시",
+    "disableMobileDragDrop": "모바일에서 캐릭터 드래그 앤 드롭 비활성화",
     "seperateModelsForAxModels": "보조 모델 분리",
     "axModelsDef": "보조 모델 정의",
     "doNotChangeSeperateModels": "프리셋 변경 시 분리된 모델 변경하지 않기",

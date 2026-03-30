@@ -625,6 +625,7 @@ export function setDatabase(data:Database){
     data.settingsCloseButtonSize ??= 24
     data.showModelInSidebar ??= true
     data.showPersonaInSidebar ??= true
+    data.disableMobileDragDrop ??= false
     data.hideAllImages ??= false
     data.ImagenModel ??= 'imagen-4.0-generate-001'
     data.ImagenImageSize ??= '1K'
@@ -1173,6 +1174,7 @@ export interface Database{
     auxModelUnderModelSettings:boolean
     showModelInSidebar:boolean
     showPersonaInSidebar:boolean
+    disableMobileDragDrop:boolean
     menuSideBar:boolean
     pluginV2: RisuPlugin[]
     showSavingIcon:boolean
