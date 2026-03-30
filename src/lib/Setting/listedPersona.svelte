@@ -8,9 +8,10 @@
 
     interface Props {
         close?: any;
+        onSelect?: ((index: number) => void) | null;
     }
 
-    let { close = () => {} }: Props = $props();
+    let { close = () => {}, onSelect = null }: Props = $props();
 
 </script>
 
@@ -26,7 +27,11 @@
         </div>
         {#each DBState.db.personas as persona, i}
             <button onclick={() => {
-                changeUserPersona(i)
+                if (onSelect) {
+                    onSelect(i)
+                } else {
+                    changeUserPersona(i)
+                }
                 close()
             }} class="flex items-center text-textcolor border-t-1 border-solid border-0 border-darkborderc p-2 cursor-pointer" class:bg-selected={i === DBState.db.selectedPersona}>
                 <span class="overflow-x-auto whitespace-nowrap w-full text-left">

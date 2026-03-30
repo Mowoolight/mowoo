@@ -16,7 +16,7 @@
     import ColorInput from "src/lib/UI/GUI/ColorInput.svelte";
   import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
   import Button from "src/lib/UI/GUI/Button.svelte";
-  import { CustomGUISettingMenuStore } from "src/ts/stores.svelte";
+  import { CustomGUISettingMenuStore, openThemePresetList } from "src/ts/stores.svelte";
   import { alertError } from "src/ts/alert";
 
     const onSchemeInputChange = (e:Event) => {
@@ -49,6 +49,7 @@
 {/if}
 
 {#if submenu === 0 || submenu === -1}
+    <Button onclick={() => {$openThemePresetList = true}} className="mt-4">{language.themePresets}</Button>
     <span class="text-textcolor mt-4">{language.theme}</span>
     <SelectInput className="mt-2" bind:value={DBState.db.theme}>
         <OptionInput value="" >Standard Risu</OptionInput>
@@ -71,6 +72,11 @@
         <span class="text-textcolor mt-4">{language.chatHTML} <Help key="chatHTML"/></span>
         <TextAreaInput bind:value={DBState.db.guiHTML} />
     {/if}
+
+    <span class="text-textcolor mt-4">{language.customCSS}<Help key="customCSS" /></span>
+    <TextAreaInput bind:value={DBState.db.customCSS} onInput={() => {
+        updateTextThemeAndCSS()
+    }} />
 
 
     {#if DBState.db.theme === "waifu"}
@@ -427,10 +433,5 @@
             <Help key="unrecommended" name={language.useChatSticker} unrecommended/>
         </div>
     {/if}
-
-    <span class="text-textcolor mt-4">{language.customCSS}<Help key="customCSS" /></span>
-    <TextAreaInput bind:value={DBState.db.customCSS} onInput={() => {
-        updateTextThemeAndCSS()
-    }} />
 
 {/if}

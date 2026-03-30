@@ -608,13 +608,6 @@ function encodeBackupEntry(name, data) {
     return Buffer.concat([nameLength, encodedName, dataLength, data]);
 }
 
-function writeBackupEntry(res, name, data) {
-    // Do not reuse the same 4-byte buffer across multiple writes.
-    // Node may flush writes asynchronously, so mutating the buffer before the
-    // previous write is fully handed off can corrupt the backup stream header.
-    res.write(encodeBackupEntry(name, data));
-}
-
 function isInvalidBackupPathSegment(name) {
     return (
         !name ||
@@ -1812,22 +1805,47 @@ app.get('/api/backup/export', async (req, res, next) => {
         res.setHeader('content-length', totalBytes);
         res.setHeader('x-risu-backup-assets', namespacedEntries.length);
 
+        let closed = false;
+        res.once('close', () => { closed = true; });
+
+        function waitForDrain() {
+            if (closed) return Promise.resolve();
+            return new Promise(resolve => {
+                function done() {
+                    res.removeListener('drain', done);
+                    res.removeListener('close', done);
+                    resolve();
+                }
+                res.once('drain', done);
+                res.once('close', done);
+            });
+        }
+
         for (const entry of namespacedEntries) {
+            if (closed) break;
             const value = entry.kind === 'kv'
                 ? kvGet(entry.key)
                 : await fs.readFile(entry.sourcePath);
+            if (closed) break;
             if (value) {
-                writeBackupEntry(res, entry.backupName, value);
+                const ok = res.write(encodeBackupEntry(entry.backupName, value));
+                if (!ok) {
+                    await waitForDrain();
+                    if (closed) break;
+                }
             }
         }
 
-        if (dbSize) {
+        if (!closed && dbSize) {
             const dbValue = kvGet('database/database.bin');
             if (dbValue) {
-                writeBackupEntry(res, 'database.risudat', dbValue);
+                const ok = res.write(encodeBackupEntry('database.risudat', dbValue));
+                if (!ok) {
+                    await waitForDrain();
+                }
             }
         }
-        res.end();
+        if (!closed) res.end();
     } catch (error) {
         next(error);
     }

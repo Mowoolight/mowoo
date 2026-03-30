@@ -1,7 +1,7 @@
 import { get } from "svelte/store"
 import { alertMd, alertSelect, alertToast, alertWait, doingAlert, alertRequestLogs } from "./alert"
 import { changeToPreset as changeToPreset2, getDatabase  } from "./storage/database.svelte"
-import { alertStore, MobileGUIStack, MobileSideBar, openPersonaList, openPresetList, openHypaV3PresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
+import { alertStore, MobileGUIStack, MobileSideBar, openPersonaList, personaSelectCallback, openPresetList, openHypaV3PresetList, openThemePresetList, OpenRealmStore, PlaygroundStore, QuickSettings, SafeModeStore, selectedCharID, settingsOpen } from "./stores.svelte"
 import { language } from "src/lang"
 import { updateTextThemeAndCSS } from "./gui/colorscheme"
 import { defaultHotkeys } from "./defaulthotkeys"
@@ -100,6 +100,7 @@ export function initHotkey(){
                 }
                 case 'persona':{
                     openPersonaList.set(!get(openPersonaList))
+                    personaSelectCallback.set(null)
                     break
                 }
                 case 'toggleCSS':{
@@ -324,6 +325,7 @@ export async function quickMenu(){
 
     const options = [
         language.presets,
+        language.themePresets,
         language.persona,
         ...(showHypaV3 ? [language.longTermMemory + ' ' + language.presets] : []),
         language.cancel
@@ -334,9 +336,13 @@ export async function quickMenu(){
         openPresetList.set(!get(openPresetList))
     }
     if(sel === 1){
-        openPersonaList.set(!get(openPersonaList))
+        openThemePresetList.set(!get(openThemePresetList))
     }
-    if(showHypaV3 && sel === 2){
+    if(sel === 2){
+        openPersonaList.set(!get(openPersonaList))
+        personaSelectCallback.set(null)
+    }
+    if(showHypaV3 && sel === 3){
         openHypaV3PresetList.set(true)
     }
 }

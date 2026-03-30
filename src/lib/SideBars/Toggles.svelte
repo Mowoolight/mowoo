@@ -6,9 +6,11 @@
     import type { PromptItem } from "src/ts/process/prompt";
     import type { character, groupChat } from "src/ts/storage/database.svelte";
     import { getCurrentChat, snapshotToggleValues, saveTogglesToChat } from "src/ts/storage/database.svelte";
-    import { alertConfirm, alertNormal, alertTogglePresets } from "src/ts/alert";
+    import { alertConfirm, alertNormal, alertSelect, alertTogglePresets } from "src/ts/alert";
     import { tooltip } from "src/ts/gui/tooltip";
-    import { PinIcon, SaveIcon, FolderHeartIcon } from "@lucide/svelte";
+    import { PinIcon, PinOffIcon, SaveIcon, FolderHeartIcon } from "@lucide/svelte";
+    import { openPersonaList, personaSelectCallback } from "src/ts/stores.svelte";
+    import { v4 } from "uuid";
     import Accordion from '../UI/Accordion.svelte'
     import CheckInput from "../UI/GUI/CheckInput.svelte";
     import SelectInput from "../UI/GUI/SelectInput.svelte";
@@ -60,6 +62,58 @@
 
     async function openPresetList() {
         await alertTogglePresets()
+    }
+
+    let boundPersona = $derived.by(() => {
+        const id = currentChat?.bindedPersona
+        if (!id) return null
+        return DBState.db.personas.find(p => p.id === id) ?? null
+    })
+    let displayPersona = $derived(boundPersona ?? DBState.db.personas[DBState.db.selectedPersona])
+    let isPersonaBound = $derived(!!boundPersona)
+
+    function bindPersona(personaIndex: number) {
+        const chat = getCurrentChat()
+        if (!chat) return
+        const persona = DBState.db.personas[personaIndex]
+        if (!persona.id) persona.id = v4()
+        chat.bindedPersona = persona.id
+        alertNormal(language.personaBindedSuccess)
+    }
+
+    function unbindPersona() {
+        const chat = getCurrentChat()
+        if (!chat) return
+        chat.bindedPersona = ''
+        alertNormal(language.personaUnbindedSuccess)
+    }
+
+    async function handlePersonaBindClick() {
+        if (isPersonaBound) {
+            const sel = parseInt(await alertSelect([
+                language.personaBindChange,
+                language.personaBindUnbind,
+                language.cancel
+            ]))
+            if (sel === 0) {
+                personaSelectCallback.set(bindPersona)
+                openPersonaList.set(true)
+            } else if (sel === 1) {
+                unbindPersona()
+            }
+        } else {
+            const sel = parseInt(await alertSelect([
+                language.personaBindCurrent,
+                language.personaSelectOther,
+                language.cancel
+            ]))
+            if (sel === 0) {
+                bindPersona(DBState.db.selectedPersona)
+            } else if (sel === 1) {
+                personaSelectCallback.set(bindPersona)
+                openPersonaList.set(true)
+            }
+        }
     }
 
     const jailbreakToggleToken = '{{jbtoggled}}'
@@ -179,6 +233,27 @@
 {/snippet}
 
 <div class="flex gap-1 mt-3 items-stretch">
+    <button class="flex-1 min-w-0 flex items-center gap-1.5 py-2 px-4 rounded-md border bg-darkbutton hover:bg-selected text-md cursor-pointer transition-colors shadow-xs"
+        class:border-darkborderc={!isPersonaBound}
+        class:text-textcolor2={!isPersonaBound}
+        class:opacity-50={!isPersonaBound}
+        class:hover:opacity-100={!isPersonaBound}
+        class:border-selected={isPersonaBound}
+        class:text-textcolor={isPersonaBound}
+        onclick={handlePersonaBindClick}>
+        {#if isPersonaBound}
+            <PinIcon size={16} class="shrink-0" />
+        {:else}
+            <PinOffIcon size={16} class="shrink-0" />
+        {/if}
+        <span class="truncate">{displayPersona?.name ?? 'User'}</span>
+        {#if displayPersona?.note}
+            <span class="truncate text-xs opacity-60">({displayPersona.note})</span>
+        {/if}
+    </button>
+</div>
+
+<div class="flex gap-1 mt-1 items-stretch">
     {#if isPinned}
         <button class="flex items-center justify-center px-3 rounded-md border border-green-600 bg-green-700 text-white hover:bg-green-600 cursor-pointer transition-colors shadow-xs"
             use:tooltip={language.togglePinRemove}
