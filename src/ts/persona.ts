@@ -22,7 +22,7 @@ export async function selectUserImg() {
         icon: db.userIcon,
         personaPrompt: db.personaPrompt,
         note: db.userNote,
-        id: v4()
+        id: db.personas[db.selectedPersona].id ?? v4()
     }
     setDatabase(db)
 }

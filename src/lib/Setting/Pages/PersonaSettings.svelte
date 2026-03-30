@@ -62,6 +62,7 @@
     onMount(createStb)
 
     onDestroy(() => {
+        saveUserPersona()
         if(stb){
             try {
                 stb.destroy()
