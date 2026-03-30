@@ -1294,6 +1294,7 @@
             <OptionInput value="openai3large">OpenAI text-embedding-3-large</OptionInput>
             <OptionInput value="ada">OpenAI Ada</OptionInput>
             <OptionInput value="voyageContext3">Voyage Context 3</OptionInput>
+            <OptionInput value="perplexityContext">Perplexity Context Embedding</OptionInput>
             <OptionInput value="custom">Custom (OpenAI-compatible)</OptionInput>
         </SelectInput>
 
@@ -1314,6 +1315,11 @@
         {#if DBState.db.hypaModel === 'voyageContext3'}
             <span class="text-textcolor">Voyage API Key</span>
             <TextInput size="sm" marginBottom hideText={DBState.db.hideApiKey} bind:value={DBState.db.voyageApiKey}/>
+        {/if}
+
+        {#if DBState.db.hypaModel === 'perplexityContext'}
+            <span class="text-textcolor">Perplexity API Key</span>
+            <TextInput size="sm" marginBottom hideText={DBState.db.hideApiKey} bind:value={DBState.db.perplexityApiKey}/>
         {/if}
 
     </Accordion>

@@ -4,7 +4,7 @@ import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { makeHashedStorageKey, readPersistentJson, readPersistentJsonBulk, writePersistentJson } from "src/ts/storage/persistentKv";
 
-export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'
+export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'|'perplexityContext'
 // In a typical environment, bge-m3 is a heavy model.
 // If your GPU can't handle this model, you'll see errror below.
 // Failed to execute 'mapAsync' on 'GPUBuffer': [Device] is lost
@@ -139,6 +139,47 @@ export class HypaProcesser{
     
     
     async getEmbeds(input:string[]|string, inputType:'query'|'document' = 'query'):Promise<VectorArray[]> {
+        if(this.model === 'perplexityContext'){
+            const db = getDatabase()
+            const apiKey = db.perplexityApiKey?.trim()
+            if(!apiKey){
+                throw new Error('Perplexity Context Embedding requires a Perplexity API Key')
+            }
+
+            const inputs:string[] = Array.isArray(input) ? input : [input]
+            const gf = await globalFetch("https://api.perplexity.ai/contextualized-embeddings", {
+                headers: {
+                    "Authorization": "Bearer " + apiKey,
+                    "Content-Type": "application/json"
+                },
+                body: {
+                    "input": inputs.map(s => [s]),
+                    "model": "pplx-embed-context-v1-4b",
+                    "encoding_format": "base64_int8"
+                }
+            })
+
+            if(!gf.ok || !gf.data.data){
+                throw new Error(JSON.stringify(gf.data))
+            }
+
+            const result:VectorArray[] = []
+            for(let i=0;i<gf.data.data.length;i++){
+                const b64:string = gf.data.data[i].data[0].embedding
+                const binaryStr = atob(b64)
+                const int8 = new Float32Array(binaryStr.length)
+                for(let j=0;j<binaryStr.length;j++){
+                    int8[j] = (binaryStr.charCodeAt(j) > 127 ? binaryStr.charCodeAt(j) - 256 : binaryStr.charCodeAt(j))
+                }
+                // L2-normalize so dot product equals cosine similarity
+                let norm = 0
+                for(let j=0;j<int8.length;j++) norm += int8[j] * int8[j]
+                norm = Math.sqrt(norm)
+                if(norm > 0) for(let j=0;j<int8.length;j++) int8[j] /= norm
+                result.push(int8)
+            }
+            return result
+        }
         if(this.model === 'voyageContext3'){
             const db = getDatabase()
             const apiKey = db.voyageApiKey?.trim()

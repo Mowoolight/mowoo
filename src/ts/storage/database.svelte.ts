@@ -226,6 +226,9 @@ export function setDatabase(data:Database){
     if(checkNullish(data.voyageApiKey)){
         data.voyageApiKey = ''
     }
+    if(checkNullish(data.perplexityApiKey)){
+        data.perplexityApiKey = ''
+    }
     if(checkNullish(data.voyageRerankTopK)){
         data.voyageRerankTopK = 40
     }
@@ -936,6 +939,7 @@ export interface Database{
     supaMemoryKey:string
     hypaMemoryKey:string
     voyageApiKey:string
+    perplexityApiKey:string
     voyageRerankTopK:number
     supaModelType:string
     textScreenColor?:string
