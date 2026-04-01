@@ -1,6 +1,5 @@
 
 import type { SettingItem } from './types';
-import { loadPlugins } from '../plugins/plugins.svelte';
 export const advancedSettingsItems: SettingItem[] = [
     { type: 'header', id: 'adv.header', labelKey: 'advancedSettings', options: { level: 'h2' }, classes: '!mb-0' },
     { type: 'header', id: 'adv.warn', labelKey: 'advancedSettingsWarn', options: { level: 'warning' } },
@@ -110,9 +109,6 @@ export const advancedSettingsItems: SettingItem[] = [
     { id: 'adv.sayNothing', type: 'check', labelKey: 'sayNothing', bindKey: 'useSayNothing', helpKey: 'sayNothing', classes: 'mt-4' },
     { id: 'adv.showUnrec', type: 'check', labelKey: 'showUnrecommended', bindKey: 'showUnrecommended', helpKey: 'showUnrecommended', classes: 'mt-4' },
     { id: 'adv.imgComp', type: 'check', labelKey: 'imageCompression', bindKey: 'imageCompression', helpKey: 'imageCompression', classes: 'mt-4' },
-    { id: 'adv.inlayLossless', type: 'check', labelKey: 'inlayImageLossless', bindKey: 'inlayImageLossless', helpKey: 'inlayImageLossless', classes: 'mt-4' },
-    { id: 'adv.inlayImagePriority', type: 'check', labelKey: 'inlayImagePriority', bindKey: 'inlayImagePriority', helpKey: 'inlayImagePriority', classes: 'mt-4' },
-    { id: 'adv.inlayCompress', type: 'custom', componentId: 'InlayCompressButton' },
     { id: 'adv.useExp', type: 'check', labelKey: 'useExperimental', bindKey: 'useExperimental', helpKey: 'useExperimental', classes: 'mt-4' },
     { id: 'adv.sourceMap', type: 'check', labelKey: 'sourcemapTranslate', bindKey: 'sourcemapTranslate', helpKey: 'sourcemapTranslate', classes: 'mt-4' },
     { id: 'adv.forceProxy', type: 'check', labelKey: 'forceProxyAsOpenAI', bindKey: 'forceProxyAsOpenAI', helpKey: 'forceProxyAsOpenAI', classes: 'mt-4' },
@@ -139,18 +135,23 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.exp.chatComp', type: 'check', labelKey: 'experimentalChatCompression', bindKey: 'chatCompression',
         condition: (ctx) => ctx.db.useExperimental, helpKey: 'experimentalChatCompressionDesc', showExperimental: true, classes: 'mt-4'
     },
+    {
+        id: 'adv.localNetworkMode', type: 'check', fallbackLabel: 'Local Network Mode (Experimental)',
+        bindKey: 'localNetworkMode', helpKey: 'localNetworkModeDesc',
+        condition: (ctx) => ctx.db.useExperimental, showExperimental: true, classes: 'mt-4'
+    },
+    {
+        id: 'adv.localNetworkTimeout', type: 'number', fallbackLabel: 'Local Network Timeout (sec)',
+        bindKey: 'localNetworkTimeoutSec',
+        condition: (ctx) => ctx.db.useExperimental && ctx.db.localNetworkMode,
+        classes: 'block mb-1', containerClasses: 'pl-7',
+        options: { min: 30, max: 3600, inputClassName: 'w-full', marginBottom: false }
+    },
 
     // Unrecommended Section
     {
         id: 'adv.cot', type: 'check', labelKey: 'cot', bindKey: 'chainOfThought',
         condition: (ctx) => ctx.db.showUnrecommended, helpKey: 'customChainOfThought', helpUnrecommended: true, classes: 'mt-4'
-    },
-    {
-        id: 'adv.allowV2Plugin', type: 'check', labelKey: 'allowV2Plugin', bindKey: 'allowV2Plugin',
-        condition: (ctx) => ctx.db.showUnrecommended, helpKey: 'allowV2Plugin', helpUnrecommended: true, classes: 'mt-4',
-        onChange: () => {
-            void loadPlugins();
-        }
     },
 
     // More Toggles
@@ -167,9 +168,7 @@ export const advancedSettingsItems: SettingItem[] = [
         id: 'adv.promptTextInfo', type: 'check', labelKey: 'promptTextInfoInsideChat', bindKey: 'promptTextInfoInsideChat',
         condition: (ctx) => ctx.db.promptInfoInsideChat, classes: 'mt-4'
     },
-    {
-        id: 'adv.remoteSave', type: 'check', labelKey: 'enableRemoteSaving', bindKey: 'enableRemoteSaving',
-    },
+    // Remote saving removed — incompatible with NodeOnly server
 
     // Dynamic Assets & Others
     { id: 'adv.dynAssets', type: 'check', labelKey: 'dynamicAssets', bindKey: 'dynamicAssets', helpKey: 'dynamicAssets', classes: 'mt-4' },

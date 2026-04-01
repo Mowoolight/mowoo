@@ -108,7 +108,6 @@ export class HypaProcessorV2<TMetadata> {
     const resultMap: Map<string, EmbeddingResult<TMetadata>> = new Map();
     const toEmbed: EmbeddingText<TMetadata>[] = [];
 
-    // Build context map for voyage-context-3
     const voyageCtx = new Map<string, string[]>();
     if (this.options.model === 'voyageContext3' && saveToMemory) {
       const groups = new Map<TMetadata, EmbeddingText<TMetadata>[]>();
@@ -333,7 +332,7 @@ export class HypaProcessorV2<TMetadata> {
           };
 
           // Save to DB
-          await setPersistedHypaVector(this.getCacheKey(content), {
+          await setPersistedHypaVector(this.getCacheKey(content, voyageCtx.get(id)), {
             content,
             embedding,
           } as any);
@@ -353,7 +352,7 @@ export class HypaProcessorV2<TMetadata> {
       const embeddingTasks = chunks.map((chunk) => {
         const contents = chunk.map((item) => item.content);
 
-        return () => this.getAPIEmbeds(contents);
+        return () => this.getAPIEmbeds(contents, saveToMemory ? "document" : "query");
       });
 
       // Progress callback
@@ -387,7 +386,7 @@ export class HypaProcessorV2<TMetadata> {
           };
 
           // Save to DB
-          await setPersistedHypaVector(this.getCacheKey(content), {
+          await setPersistedHypaVector(this.getCacheKey(content, voyageCtx.get(id)), {
             content,
             embedding,
           } as any);
@@ -488,7 +487,10 @@ export class HypaProcessorV2<TMetadata> {
     return results;
   }
 
-  private async getAPIEmbeds(contents: string[]): Promise<EmbeddingVector[]> {
+  private async getAPIEmbeds(
+    contents: string[],
+    inputType: "query" | "document" = "query"
+  ): Promise<EmbeddingVector[]> {
     const db = getDatabase();
     let response = null;
 
@@ -557,7 +559,7 @@ export class HypaProcessorV2<TMetadata> {
           body: {
             "inputs": contents.map(s => [s]),
             "model": "voyage-context-3",
-            "input_type": "query"
+            "input_type": inputType
           }
         }
       );

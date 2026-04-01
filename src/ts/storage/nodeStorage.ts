@@ -1,6 +1,12 @@
+// ── NodeOnly: server-side JWT ────────────────────────────────────────────────
+// Upstream uses client-side ECDSA JWT (crypto.subtle) which requires Secure
+// Context (HTTPS/localhost). NodeOnly needs HTTP remote access, so JWT
+// signing is moved to the server. The client only caches and forwards
+// server-issued tokens. If upstream changes its auth flow, sync manually.
+// Server counterpart: server/node/server.cjs (createServerJwt, checkAuth,
+// /api/login, /api/token/refresh)
 import { language } from "src/lang"
 import { alertError, alertInput, waitAlert } from "../alert"
-import { base64url, getKeypairStore, saveKeypairStore } from "../util"
 
 // Custom error class for database conflict detection
 export class ConflictError extends Error {
@@ -12,6 +18,64 @@ export class ConflictError extends Error {
     }
 }
 
+// ── database.bin read cache (IndexedDB) ──────────────────────────────────────
+// Caches the database.bin blob + ETag locally so that subsequent page loads can
+// skip the full download when the server responds 304 Not Modified.
+// Only database.bin is cached — this is not a general-purpose cache layer.
+
+const DB_CACHE_DB_NAME = 'risu-db-cache'
+const DB_CACHE_STORE = 'cache'
+const DB_CACHE_KEY = 'database.bin'
+
+async function dbCacheGet(): Promise<{ blob: Uint8Array, etag: string } | null> {
+    try {
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open(DB_CACHE_DB_NAME, 1)
+            req.onupgradeneeded = () => req.result.createObjectStore(DB_CACHE_STORE)
+            req.onsuccess = () => resolve(req.result)
+            req.onerror = () => reject(req.error)
+        })
+        const tx = db.transaction(DB_CACHE_STORE, 'readonly')
+        const store = tx.objectStore(DB_CACHE_STORE)
+        const result = await new Promise<any>((resolve, reject) => {
+            const req = store.get(DB_CACHE_KEY)
+            req.onsuccess = () => resolve(req.result)
+            req.onerror = () => reject(req.error)
+        })
+        db.close()
+        if (result && result.blob && result.etag) {
+            return { blob: result.blob, etag: result.etag }
+        }
+        return null
+    } catch {
+        return null
+    }
+}
+
+async function dbCacheSet(blob: Uint8Array, etag: string): Promise<void> {
+    try {
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open(DB_CACHE_DB_NAME, 1)
+            req.onupgradeneeded = () => req.result.createObjectStore(DB_CACHE_STORE)
+            req.onsuccess = () => resolve(req.result)
+            req.onerror = () => reject(req.error)
+        })
+        const tx = db.transaction(DB_CACHE_STORE, 'readwrite')
+        const store = tx.objectStore(DB_CACHE_STORE)
+        // Atomic: blob + etag written in a single transaction
+        store.put({ blob, etag }, DB_CACHE_KEY)
+        await new Promise<void>((resolve, reject) => {
+            tx.oncomplete = () => resolve()
+            tx.onerror = () => reject(tx.error)
+        })
+        db.close()
+    } catch {
+        // Cache write failure is non-fatal
+    }
+}
+
+export { dbCacheSet }
+
 export class NodeStorage{
     private static readonly BULK_WRITE_CLIENT_BATCH = 20
 
@@ -20,17 +84,14 @@ export class NodeStorage{
     private cachedJwt: { token: string; expiresAt: number } | null = null
     private static sessionInitialized = false
     private static sessionPending: Promise<void> | null = null
-    JSONStringlifyAndbase64Url(obj:any){
-        return base64url(Buffer.from(JSON.stringify(obj), 'utf-8'))
-    }
+    private refreshPending: Promise<string> | null = null
 
     async createAuth(){
         const now = Date.now()
         if (this.cachedJwt && this.cachedJwt.expiresAt - now > 30_000) {
             return this.cachedJwt.token
         }
-        const token = await this._createFreshAuth()
-        this.cachedJwt = { token, expiresAt: now + 5 * 60 * 1000 }
+        const token = await this._refreshToken()
         return token
     }
 
@@ -60,65 +121,30 @@ export class NodeStorage{
         }
     }
 
-    private async _createFreshAuth(){
-        const keyPair = await this.getKeyPair()
-        const date = Math.floor(Date.now() / 1000)
-
-        const header = {
-            alg: "ES256",
-            typ: "JWT",
-        }
-        const payload = {
-            iat: date,
-            exp: date + 5 * 60, //5 minutes expiration
-            pub: await crypto.subtle.exportKey('jwk', keyPair.publicKey)
-        }
-        const sig = await crypto.subtle.sign(
-            {
-                name: "ECDSA",
-                hash: "SHA-256"
-            },
-            keyPair.privateKey,
-            Buffer.from(
-                this.JSONStringlifyAndbase64Url(header) + "." + this.JSONStringlifyAndbase64Url(payload)
-            )
-        )
-        const sigString = base64url(new Uint8Array(sig))
-        return this.JSONStringlifyAndbase64Url(header) + "." + this.JSONStringlifyAndbase64Url(payload) + "." + sigString
+    private async _refreshToken(): Promise<string> {
+        if (this.refreshPending) return this.refreshPending
+        this.refreshPending = this._doRefreshToken()
+        try { return await this.refreshPending }
+        finally { this.refreshPending = null }
     }
 
-    async getKeyPair():Promise<CryptoKeyPair>{
-        
-        const storedKey = await getKeypairStore('node')
-
-        if(storedKey){
-            return storedKey
+    private async _doRefreshToken(): Promise<string> {
+        const res = await fetch('/api/token/refresh', {
+            method: 'POST',
+            headers: { 'risu-auth': this.cachedJwt?.token ?? '' }
+        })
+        if (res.ok) {
+            const data = await res.json()
+            this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+            return data.token
         }
-
-        const keyPair = await crypto.subtle.generateKey(
-            {
-                name: "ECDSA",
-                namedCurve: "P-256"
-            },
-            false,
-            ["sign", "verify"],
-        );
-
-        await saveKeypairStore('node', keyPair)
-
-        return keyPair
-
+        return this.cachedJwt?.token ?? ''
     }
 
     private async loginWithPassword(password: string) {
-        const keypair = await this.getKeyPair()
-        const publicKey = await crypto.subtle.exportKey('jwk', keypair.publicKey)
         const response = await fetch('/api/login', {
             method: "POST",
-            body: JSON.stringify({
-                password,
-                publicKey
-            }),
+            body: JSON.stringify({ password }),
             headers: {
                 'content-type': 'application/json'
             }
@@ -141,6 +167,10 @@ export class NodeStorage{
             throw new Error(message)
         }
 
+        const data = await response.json()
+        if (data.token) {
+            this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+        }
         this.authChecked = true
     }
 
@@ -153,7 +183,6 @@ export class NodeStorage{
             const data = await response.clone().json()
             return [
                 'No auth header',
-                'Unknown Public Key',
                 'Invalid Signature',
                 'Token Expired'
             ].includes(data?.error)
@@ -212,12 +241,37 @@ export class NodeStorage{
         }
     }
     async getItem(key:string):Promise<Buffer> {
-        const da = await this.authFetch('/api/read', {
-            method: "GET",
-            headers: {
-                'file-path': Buffer.from(key, 'utf-8').toString('hex')
+        const headers: Record<string, string> = {
+            'file-path': Buffer.from(key, 'utf-8').toString('hex')
+        }
+
+        // For database.bin, try to use cached version with ETag validation
+        if (key === 'database/database.bin') {
+            const cached = await dbCacheGet()
+            if (cached) {
+                headers['if-none-match'] = cached.etag
+                const da = await this.authFetch('/api/read', { method: "GET", headers })
+                if (da.status === 304) {
+                    this._lastDbEtag = cached.etag
+                    return Buffer.from(cached.blob)
+                }
+                if (da.status < 200 || da.status >= 300) {
+                    throw "getItem Error"
+                }
+                const etag = da.headers.get('x-db-etag')
+                if (etag) {
+                    this._lastDbEtag = etag
+                }
+                const data = Buffer.from(await da.arrayBuffer())
+                if (data.length === 0) return null
+                if (etag) {
+                    void dbCacheSet(new Uint8Array(data), etag)
+                }
+                return data
             }
-        })
+        }
+
+        const da = await this.authFetch('/api/read', { method: "GET", headers })
         if(da.status < 200 || da.status >= 300){
             throw "getItem Error"
         }
@@ -229,9 +283,15 @@ export class NodeStorage{
         }
 
         const data = Buffer.from(await da.arrayBuffer())
-        if (data.length == 0){
+        if (data.length === 0){
             return null
         }
+
+        // Cache database.bin after full download
+        if (key === 'database/database.bin' && etag) {
+            void dbCacheSet(new Uint8Array(data), etag)
+        }
+
         return data
     }
     async keys(prefix: string = ''):Promise<string[]>{
@@ -274,7 +334,7 @@ export class NodeStorage{
         if(!this.authChecked){
             const data = await (await fetch('/api/test_auth',{
                 headers: {
-                    'risu-auth': await this.createAuth()
+                    'risu-auth': this.cachedJwt?.token ?? ''
                 }
             })).json()
 
@@ -305,6 +365,9 @@ export class NodeStorage{
                 return
             }
             else{
+                if (data.token) {
+                    this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
+                }
                 this.authChecked = true
             }
         }
@@ -463,7 +526,7 @@ export class NodeStorage{
 }
 
 async function digestPassword(message:string) {
-    const crypt = await (await fetch('/api/crypto', {
+    const res = await fetch('/api/crypto', {
         body: JSON.stringify({
             data: message
         }),
@@ -471,7 +534,9 @@ async function digestPassword(message:string) {
             'content-type': 'application/json'
         },
         method: "POST"
-    })).text()
-    
-    return crypt;
+    })
+    if(res.status < 200 || res.status >= 300){
+        throw new Error(`Password hashing failed (${res.status})`)
+    }
+    return await res.text()
 }

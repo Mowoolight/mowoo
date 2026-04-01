@@ -1198,6 +1198,8 @@
                 <SliderInput marginBottom min={0} max={1 - settings.memoryTokensRatio} step={0.01} fixed={2} bind:value={settings.extraSummarizationRatio} />
                 <span class="text-textcolor">{language.hypaV3Settings.maxChatsPerSummaryLabel} <Help key="hypaV3MaxChatsPerSummary"/></span>
                 <NumberInput marginBottom size="sm" min={1} bind:value={settings.maxChatsPerSummary} />
+                <span class="text-textcolor">{language.hypaV3Settings.queryChatCountLabel} <Help key="hypaV3QueryChatCount"/></span>
+                <NumberInput marginBottom size="sm" min={1} max={20} bind:value={settings.queryChatCount} />
                 <span class="text-textcolor">{language.hypaV3Settings.recentMemoryRatioLabel} <Help key="hypaV3RecentMemoryRatio"/></span>
                 <SliderInput marginBottom min={0} max={1} step={0.01} fixed={2} bind:value={settings.recentMemoryRatio} />
                 <span class="text-textcolor">{language.hypaV3Settings.similarMemoryRatioLabel} <Help key="hypaV3SimilarMemoryRatio"/></span>
@@ -1296,6 +1298,7 @@
             <OptionInput value="voyageContext3">Voyage Context 3</OptionInput>
             <OptionInput value="perplexityContext">Perplexity Context Embedding</OptionInput>
             <OptionInput value="custom">Custom (OpenAI-compatible)</OptionInput>
+            <OptionInput value="voyageContext3">Voyage Context 3</OptionInput>
         </SelectInput>
 
         {#if DBState.db.hypaModel === 'openai3small' || DBState.db.hypaModel === 'openai3large' || DBState.db.hypaModel === 'ada'}
@@ -1315,11 +1318,6 @@
         {#if DBState.db.hypaModel === 'voyageContext3'}
             <span class="text-textcolor">Voyage API Key</span>
             <TextInput size="sm" marginBottom hideText={DBState.db.hideApiKey} bind:value={DBState.db.voyageApiKey}/>
-        {/if}
-
-        {#if DBState.db.hypaModel === 'perplexityContext'}
-            <span class="text-textcolor">Perplexity API Key</span>
-            <TextInput size="sm" marginBottom hideText={DBState.db.hideApiKey} bind:value={DBState.db.perplexityApiKey}/>
         {/if}
 
     </Accordion>

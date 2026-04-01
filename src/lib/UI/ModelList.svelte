@@ -16,9 +16,11 @@
         }) => any
         blankable?: boolean
         excludesPrefix?: string
+        compact?: boolean
+        label?: string
     }
 
-    let { value = $bindable(""), onChange = (v) => {}, onclick, blankable, excludesPrefix }: Props = $props();
+    let { value = $bindable(""), onChange = (v) => {}, onclick, blankable, excludesPrefix, compact, label }: Props = $props();
     let openOptions = $state(false)
 
     function changeModel(name:string){
@@ -108,8 +110,15 @@
 
 {/if}
 
-<button onclick={() => {openOptions = true}}
-    class="mt-4 drop-shadow-lg p-3 flex justify-center items-center ml-2 mr-2 rounded-lg bg-darkbutton mb-4 border-darkborderc border">
-        {getModelInfo(value)?.fullName || language.none}
-</button>
+{#if compact}
+    <button onclick={() => {openOptions = true}}
+        class="w-full min-w-0 flex items-center py-2 px-4 rounded-md border border-darkborderc bg-darkbutton hover:bg-selected text-md cursor-pointer transition-colors shadow-xs">
+        <span class="truncate">{getModelInfo(value)?.shortName || getModelInfo(value)?.name || language.none}</span>
+    </button>
+{:else}
+    <button onclick={() => {openOptions = true}}
+        class="mt-4 drop-shadow-lg p-3 flex justify-center items-center ml-2 mr-2 rounded-lg bg-darkbutton mb-4 border-darkborderc border">
+            {getModelInfo(value)?.fullName || language.none}
+    </button>
+{/if}
 

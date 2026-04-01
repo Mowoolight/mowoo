@@ -31,6 +31,7 @@
     import { exportRegex, importRegex } from "src/ts/process/scripts";
     import SliderInput from "../UI/GUI/SliderInput.svelte";
     import Toggles from "./Toggles.svelte";
+    import PersonaBind from "./PersonaBind.svelte";
 
     let iconRemoveMode = $state(false)
     let viewSubMenu = $state(0)
@@ -278,6 +279,9 @@
     <span class="text-textcolor2 mb-6 text-sm">{tokens.localNote} {language.tokens}</span>
 
     {#if !$MobileGUI}
+        {#if DBState.db.showPersonaInSidebar}
+            <PersonaBind />
+        {/if}
         <Toggles bind:chara={DBState.db.characters[$selectedCharID]} noContainer />
 
     {/if}

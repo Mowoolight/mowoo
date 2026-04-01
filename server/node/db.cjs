@@ -87,6 +87,9 @@ const stmtKvPrefixSizes = db.prepare(`SELECT key, LENGTH(value) as size FROM kv 
 const stmtKvDelPrefix = db.prepare(`DELETE FROM kv WHERE key LIKE ? ESCAPE '\\'`);
 const stmtKvSize      = db.prepare(`SELECT LENGTH(value) as size FROM kv WHERE key = ?`);
 const stmtKvUpdatedAt = db.prepare(`SELECT updated_at FROM kv WHERE key = ?`);
+const stmtKvCopy = db.prepare(
+    `INSERT OR REPLACE INTO kv (key, value, updated_at) SELECT ?, value, ? FROM kv WHERE key = ?`
+);
 
 function kvGet(key) {
     const row = stmtKvGet.get(key);
@@ -109,6 +112,10 @@ function kvSize(key) {
 function kvGetUpdatedAt(key) {
     const row = stmtKvUpdatedAt.get(key);
     return row ? row.updated_at : null;
+}
+
+function kvCopyValue(srcKey, dstKey) {
+    stmtKvCopy.run(dstKey, Date.now(), srcKey);
 }
 
 function kvDelPrefix(prefix) {
@@ -145,7 +152,7 @@ function clearEntities() {
 module.exports = {
     db,
     // KV
-    kvGet, kvSet, kvDel, kvList, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt,
+    kvGet, kvSet, kvDel, kvList, kvDelPrefix, kvListWithSizes, kvSize, kvGetUpdatedAt, kvCopyValue,
     clearEntities,
     checkpointWal,
 };
