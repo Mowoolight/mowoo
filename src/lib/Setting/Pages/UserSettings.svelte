@@ -2,7 +2,7 @@
     import { language } from "src/lang";
     import { alertConfirm} from "src/ts/alert";
     import { loadInternalBackup } from "src/ts/globalApi.svelte";
-    import { LoadLocalBackup, SaveLocalBackup, SavePartialLocalBackup } from "src/ts/drive/backuplocal";
+    import { LoadLocalBackup, SaveLocalBackup, SavePartialLocalBackup, ImportFromSaveZip, CleanupMigratedFiles } from "src/ts/drive/backuplocal";
     import Button from "src/lib/UI/GUI/Button.svelte";
     import { exportAsDataset } from "src/ts/storage/exportAsDataset";
 </script>
@@ -47,6 +47,18 @@
 
 <Button onclick={exportAsDataset} className="mt-2">
     {language.exportAsDataset}
+</Button>
+
+<h3 class="mb-1 text-lg font-bold mt-6">{language.importSaveFolderHeader}</h3>
+
+<p class="text-sm text-neutral-400 mb-2">{language.importSaveZipDesc}</p>
+<Button onclick={ImportFromSaveZip} className="mt-1">
+    {language.importSaveZip}
+</Button>
+
+<p class="text-sm text-neutral-400 mt-3 mb-2">{language.cleanupMigratedDesc}</p>
+<Button onclick={CleanupMigratedFiles} className="mt-1">
+    {language.cleanupMigratedFiles}
 </Button>
 
 <!--

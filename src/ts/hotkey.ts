@@ -312,8 +312,8 @@ export async function quickMenu(){
         language.presets,
         language.themePresets,
         language.persona,
-        language.hotkeyDesc.loadout,
         ...(showHypaV3 ? [language.longTermMemory + ' ' + language.presets] : []),
+        language.hotkeyDesc.loadout,
         language.cancel
     ]
 
@@ -328,11 +328,11 @@ export async function quickMenu(){
         openPersonaList.set(!get(openPersonaList))
         personaSelectCallback.set(null)
     }
-    if(sel === 3){
-        loadoutModalStore.open = !(loadoutModalStore.open)
-    }
-    if(showHypaV3 && sel === 4){
+    if(showHypaV3 && sel === 3){
         openHypaV3PresetList.set(true)
+    }
+    if(sel === (showHypaV3 ? 4 : 3)){
+        loadoutModalStore.open = !(loadoutModalStore.open)
     }
 }
 

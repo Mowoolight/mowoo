@@ -67,4 +67,11 @@ export class AutoStorage{
     // ── Bulk asset operations ──────────────────────────────────────────────────
     async getItems(keys: string[]) { return this.realStorage.getItems(keys) }
     async setItems(entries: {key: string, value: Uint8Array}[]) { return this.realStorage.setItems(entries) }
+
+    // ── Save-folder migration ─────────────────────────────────────────────────
+    async scanSaveFolder(folderPath?: string) { await this.Init(); return this.realStorage.scanSaveFolder(folderPath) }
+    async executeSaveFolderImport(folderPath?: string) { await this.Init(); return this.realStorage.executeSaveFolderImport(folderPath) }
+    async uploadSaveFolderZip(file: Blob, onProgress?: (loaded: number, total: number) => void) { await this.Init(); return this.realStorage.uploadSaveFolderZip(file, onProgress) }
+    async scanCleanup() { await this.Init(); return this.realStorage.scanCleanup() }
+    async executeCleanup() { await this.Init(); return this.realStorage.executeCleanup() }
 }

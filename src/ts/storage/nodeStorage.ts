@@ -79,6 +79,10 @@ export { dbCacheSet }
 export class NodeStorage{
     private static readonly BULK_WRITE_CLIENT_BATCH = 20
 
+    // Unique per page load — used for cross-device single-writer lock
+    private static sessionId: string =
+        crypto?.randomUUID?.() ?? (Date.now().toString(36) + Math.random().toString(36).slice(2))
+
     _lastDbEtag: string | null = null
     authChecked = false
     private cachedJwt: { token: string; expiresAt: number } | null = null
@@ -108,7 +112,10 @@ export class NodeStorage{
         try {
             const res = await fetch('/api/session', {
                 method: 'POST',
-                headers: { 'risu-auth': await this.createAuth() },
+                headers: {
+                    'risu-auth': await this.createAuth(),
+                    'x-session-id': NodeStorage.sessionId,
+                },
             })
             if (res.ok) {
                 NodeStorage.sessionInitialized = true
@@ -195,11 +202,16 @@ export class NodeStorage{
         await this.checkAuth()
         const headers = new Headers(init.headers)
         headers.set('risu-auth', await this.createAuth())
+        headers.set('x-session-id', NodeStorage.sessionId)
 
         const response = await fetch(input, {
             ...init,
             headers
         })
+
+        if (response.status === 423) {
+            window.dispatchEvent(new CustomEvent('risu-session-deactivated'))
+        }
 
         if(retry && await this.shouldRetryAuth(response)){
             this.authChecked = false
@@ -499,6 +511,7 @@ export class NodeStorage{
             xhr.open('POST', '/api/backup/import')
             xhr.setRequestHeader('content-type', 'application/x-risu-backup')
             xhr.setRequestHeader('risu-auth', authHeader)
+            xhr.setRequestHeader('x-session-id', NodeStorage.sessionId)
 
             xhr.upload.onprogress = (event) => {
                 if (event.lengthComputable) {
@@ -521,6 +534,95 @@ export class NodeStorage{
 
             xhr.send(file)
         })
+    }
+
+    // ── Save-folder migration ─────────────────────────────────────────────────
+
+    async scanSaveFolder(folderPath?: string): Promise<{count: number, totalSize: number, hasDatabase: boolean}> {
+        const da = await this.authFetch('/api/migrate/save-folder/scan', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path: folderPath }),
+        })
+        if (da.status < 200 || da.status >= 300) {
+            const body = await da.json().catch(() => ({}))
+            throw new Error(body.error || `scan error: ${da.status}`)
+        }
+        return da.json()
+    }
+
+    async executeSaveFolderImport(folderPath?: string): Promise<{ok: boolean, imported: number}> {
+        const da = await this.authFetch('/api/migrate/save-folder/execute', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ path: folderPath }),
+        })
+        if (da.status === 409) throw new Error('Another import is already in progress')
+        if (da.status < 200 || da.status >= 300) {
+            const body = await da.json().catch(() => ({}))
+            throw new Error(body.error || `import error: ${da.status}`)
+        }
+        return da.json()
+    }
+
+    async uploadSaveFolderZip(
+        file: Blob,
+        onProgress?: (loaded: number, total: number) => void
+    ): Promise<{ok: boolean, imported: number}> {
+        const authHeader = await this.createAuth()
+
+        return await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest()
+            xhr.open('POST', '/api/migrate/save-folder/upload')
+            xhr.setRequestHeader('content-type', 'application/zip')
+            xhr.setRequestHeader('risu-auth', authHeader)
+            xhr.setRequestHeader('x-session-id', NodeStorage.sessionId)
+
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    onProgress?.(event.loaded, event.total)
+                }
+            }
+
+            xhr.onerror = () => reject(new Error('zip upload failed'))
+            xhr.onload = () => {
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    let msg = `zip import error: ${xhr.status}`
+                    try { msg = JSON.parse(xhr.responseText).error || msg } catch {}
+                    reject(new Error(msg))
+                    return
+                }
+                try {
+                    resolve(JSON.parse(xhr.responseText))
+                } catch (error) {
+                    reject(error)
+                }
+            }
+
+            xhr.send(file)
+        })
+    }
+
+    async scanCleanup(): Promise<{count: number, totalSize: number}> {
+        const da = await this.authFetch('/api/migrate/save-folder/cleanup/scan', {
+            method: 'POST',
+        })
+        if (da.status < 200 || da.status >= 300) {
+            const body = await da.json().catch(() => ({}))
+            throw new Error(body.error || `cleanup scan error: ${da.status}`)
+        }
+        return da.json()
+    }
+
+    async executeCleanup(): Promise<{ok: boolean, removed: number, freedBytes: number}> {
+        const da = await this.authFetch('/api/migrate/save-folder/cleanup/execute', {
+            method: 'POST',
+        })
+        if (da.status < 200 || da.status >= 300) {
+            const body = await da.json().catch(() => ({}))
+            throw new Error(body.error || `cleanup error: ${da.status}`)
+        }
+        return da.json()
     }
 
 }

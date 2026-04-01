@@ -182,8 +182,7 @@ let importInProgress = false;
 
 // ── Update check ─────────────────────────────────────────────────────────────
 const UPDATE_CHECK_DISABLED = process.env.RISU_UPDATE_CHECK === 'false';
-const UPDATE_CHECK_REPO = process.env.RISU_UPDATE_REPO || 'mrbart3885/Risuai-NodeOnly';
-const UPDATE_CHECK_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours
+const UPDATE_CHECK_URL = process.env.RISU_UPDATE_URL || 'https://risu-update-worker.nodridan.workers.dev/check';
 
 const currentVersion = (() => {
     try {
@@ -192,7 +191,6 @@ const currentVersion = (() => {
     } catch { return '0.0.0'; }
 })();
 
-let latestReleaseCache = null;
 
 function isSafeInlayId(id) {
     return typeof id === 'string' &&
@@ -524,62 +522,17 @@ async function migrateInlaysToFilesystem() {
     await fs.writeFile(inlayMigrationMarker, new Date().toISOString(), 'utf-8');
 }
 
-function compareVersions(a, b) {
-    const pa = a.replace(/^v/, '').split('.').map(Number);
-    const pb = b.replace(/^v/, '').split('.').map(Number);
-    for (let i = 0; i < 3; i++) {
-        const diff = (pa[i] || 0) - (pb[i] || 0);
-        if (diff !== 0) return diff;
-    }
-    return 0;
-}
-
-function parseReleaseMeta(body) {
-    const meta = { updateType: 'optional', minVersion: null };
-    if (!body) return meta;
-    const typeMatch = body.match(/<!--\s*RISU_UPDATE:\s*(\w+)\s*-->/);
-    if (typeMatch) meta.updateType = typeMatch[1];
-    const minMatch = body.match(/<!--\s*RISU_MIN_VERSION:\s*([\d.]+)\s*-->/);
-    if (minMatch) meta.minVersion = minMatch[1];
-    return meta;
-}
-
 async function fetchLatestRelease() {
-    if (UPDATE_CHECK_DISABLED || !UPDATE_CHECK_REPO) return null;
+    if (UPDATE_CHECK_DISABLED) return null;
     try {
-        const url = `https://api.github.com/repos/${UPDATE_CHECK_REPO}/releases/latest`;
-        const res = await fetch(url, {
-            headers: {
-                'Accept': 'application/vnd.github+json',
-                'User-Agent': 'RisuAI-NodeOnly/' + currentVersion,
-            },
-        });
+        const url = `${UPDATE_CHECK_URL}?v=${encodeURIComponent(currentVersion)}`;
+        const res = await fetch(url);
         if (!res.ok) return null;
         const data = await res.json();
-        const meta = parseReleaseMeta(data.body);
-        const latestVer = (data.tag_name || '').replace(/^v/, '');
-        const hasUpdate = compareVersions(latestVer, currentVersion) > 0;
-        let severity = 'none';
-        if (hasUpdate) {
-            severity = meta.updateType === 'required' ? 'required' : 'optional';
-            if (meta.minVersion && compareVersions(currentVersion, meta.minVersion) < 0) {
-                severity = 'outdated';
-            }
+        if (data.hasUpdate) {
+            console.log(`[Update] New version available: v${data.latestVersion} (current: v${currentVersion}, ${data.severity})`);
         }
-        latestReleaseCache = {
-            currentVersion,
-            latestVersion: latestVer,
-            hasUpdate,
-            severity,
-            releaseUrl: data.html_url || '',
-            releaseName: data.name || '',
-            publishedAt: data.published_at || '',
-            checkedAt: Date.now(),
-        };
-        if (hasUpdate) {
-            console.log(`[Update] New version available: v${latestVer} (current: v${currentVersion}, ${severity})`);
-        }
-        return latestReleaseCache;
+        return data;
     } catch (e) {
         console.error('[Update] Failed to check for updates:', e.message);
         return null;
@@ -636,6 +589,21 @@ async function checkDiskSpace(requiredBytes) {
         // statfs unavailable on this platform — skip check
         return { ok: true, available: -1 };
     }
+}
+
+// ── Active writer session (single-writer lock) ────────────────────────────────
+// Mirrors the BroadcastChannel-based tab lock on the server side so that the
+// same protection extends across devices. The last client to call /api/session
+// becomes the active writer; older sessions receive 423 on write attempts.
+let activeSessionId = null // string | null
+
+function checkActiveSession(req, res) {
+    const clientSessionId = req.headers['x-session-id']
+    if (!clientSessionId) return true  // client without session support
+    if (!activeSessionId) return true  // no session registered yet
+    if (clientSessionId === activeSessionId) return true
+    res.status(423).json({ error: 'Session deactivated' })
+    return false
 }
 
 // --- Proxy Stream Job constants ---
@@ -1799,6 +1767,11 @@ app.post('/api/token/refresh', async (req, res) => {
 // <img src="/api/asset/..."> requests can be authenticated without JS.
 app.post('/api/session', async (req, res) => {
     if (!await checkAuth(req, res)) return
+    const clientSessionId = req.headers['x-session-id']
+    if (clientSessionId) {
+        activeSessionId = clientSessionId
+        console.log('[Session] Active writer session updated')
+    }
     const token = nodeCrypto.randomBytes(32).toString('hex')
     const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000
     sessions.set(token, expiresAt)
@@ -2063,6 +2036,7 @@ app.post('/api/write', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
+    if (!checkActiveSession(req, res)) return;
     const filePath = req.headers['file-path'];
     const fileContent = req.body;
     if (!filePath || !fileContent) {
@@ -2134,6 +2108,7 @@ app.post('/api/write', async (req, res, next) => {
 });
 
 app.post('/api/db/flush', sessionAuthMiddleware, async (req, res, next) => {
+    if (!checkActiveSession(req, res)) return;
     try {
         await queueStorageOperation(async () => {
             flushPendingDb();
@@ -2156,6 +2131,7 @@ app.post('/api/patch', async (req, res, next) => {
     if(!await checkAuth(req, res)){
         return;
     }
+    if (!checkActiveSession(req, res)) return;
     const filePath = req.headers['file-path'];
     const patch = req.body.patch;
     const expectedHash = req.body.expectedHash;
@@ -2321,6 +2297,7 @@ app.post('/api/assets/bulk-read', async (req, res, next) => {
 
 app.post('/api/assets/bulk-write', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
+    if (!checkActiveSession(req, res)) return;
     try {
         const entries = req.body; // {key: string, value: base64}[]
         if(!Array.isArray(entries)){
@@ -2448,6 +2425,7 @@ app.get('/api/backup/export', async (req, res, next) => {
 // Pre-flight check: auth + size + disk space before client starts uploading
 app.post('/api/backup/import/prepare', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
+    if (!checkActiveSession(req, res)) return;
     try {
         if (importInProgress) {
             res.status(409).json({ error: 'Another import is already in progress' });
@@ -2480,6 +2458,7 @@ app.post('/api/backup/import/prepare', async (req, res, next) => {
 
 app.post('/api/backup/import', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
+    if (!checkActiveSession(req, res)) return;
 
     if (importInProgress) {
         res.status(409).json({ error: 'Another import is already in progress' });
@@ -2730,10 +2709,257 @@ app.post('/api/backup/import', async (req, res, next) => {
     }
 });
 
+// ── Save-folder migration endpoints ──────────────────────────────────────────
+const migrationMarkerPath = path.join(savePath, '.migrated_to_sqlite');
+
+function scanHexFilesInDir(dirPath) {
+    let files;
+    try {
+        files = readdirSync(dirPath);
+    } catch {
+        return { hexFiles: [], count: 0, totalSize: 0, hasDatabase: false };
+    }
+    const hexFiles = files.filter(f => hexRegex.test(f));
+    let totalSize = 0;
+    let hasDatabase = false;
+    for (const f of hexFiles) {
+        try {
+            const stat = require('fs').statSync(path.join(dirPath, f));
+            totalSize += stat.size;
+        } catch { /* skip unreadable files */ }
+        try {
+            if (Buffer.from(f, 'hex').toString('utf-8') === 'database/database.bin') hasDatabase = true;
+        } catch { /* invalid hex */ }
+    }
+    return { hexFiles, count: hexFiles.length, totalSize, hasDatabase };
+}
+
+function clearExistingData() {
+    kvDelPrefix('assets/');
+    kvDelPrefix('inlay/');
+    kvDelPrefix('inlay_thumb/');
+    kvDelPrefix('inlay_meta/');
+    kvDelPrefix('inlay_info/');
+    clearEntities();
+}
+
+function importHexFilesFromDir(dirPath) {
+    const { hexFiles, hasDatabase } = scanHexFilesInDir(dirPath);
+    if (hexFiles.length === 0) return { imported: 0 };
+    if (!hasDatabase) throw new Error('Save folder does not contain database/database.bin');
+
+    flushPendingDb();
+    createBackupAndRotate();
+    clearExistingData();
+    invalidateDbCache();
+
+    const insert = sqliteDb.prepare(
+        `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`
+    );
+    const now = Date.now();
+
+    const run = sqliteDb.transaction(() => {
+        for (const hexFile of hexFiles) {
+            const key = Buffer.from(hexFile, 'hex').toString('utf-8');
+            const value = readFileSync(path.join(dirPath, hexFile));
+            insert.run(key, value, now);
+        }
+    });
+    run();
+
+    writeFileSync(migrationMarkerPath, new Date().toISOString(), 'utf-8');
+    return { imported: hexFiles.length };
+}
+
+function importHexEntries(entries) {
+    if (entries.length === 0) return { imported: 0 };
+    const hasDb = entries.some(e => e.key === 'database/database.bin');
+    if (!hasDb) throw new Error('Data does not contain database/database.bin');
+
+    flushPendingDb();
+    createBackupAndRotate();
+    clearExistingData();
+    invalidateDbCache();
+
+    const insert = sqliteDb.prepare(
+        `INSERT OR REPLACE INTO kv (key, value, updated_at) VALUES (?, ?, ?)`
+    );
+    const now = Date.now();
+
+    const run = sqliteDb.transaction(() => {
+        for (const { key, value } of entries) {
+            insert.run(key, value, now);
+        }
+    });
+    run();
+
+    writeFileSync(migrationMarkerPath, new Date().toISOString(), 'utf-8');
+    return { imported: entries.length };
+}
+
+app.post('/api/migrate/save-folder/scan', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    try {
+        const folderPath = req.body?.path || savePath;
+        const resolved = path.resolve(folderPath);
+        try {
+            const stat = require('fs').statSync(resolved);
+            if (!stat.isDirectory()) {
+                res.status(400).json({ error: 'Path is not a directory' });
+                return;
+            }
+        } catch {
+            res.status(400).json({ error: 'Cannot access directory' });
+            return;
+        }
+        const { count, totalSize, hasDatabase } = scanHexFilesInDir(resolved);
+        res.json({ count, totalSize, hasDatabase });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post('/api/migrate/save-folder/execute', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    if (importInProgress) {
+        res.status(409).json({ error: 'Another import is already in progress' });
+        return;
+    }
+    importInProgress = true;
+    try {
+        const folderPath = req.body?.path || savePath;
+        const resolved = path.resolve(folderPath);
+        try {
+            const stat = require('fs').statSync(resolved);
+            if (!stat.isDirectory()) {
+                res.status(400).json({ error: 'Path is not a directory' });
+                return;
+            }
+        } catch {
+            res.status(400).json({ error: 'Cannot access directory' });
+            return;
+        }
+        const result = importHexFilesFromDir(resolved);
+        res.json({ ok: true, imported: result.imported });
+    } catch (error) {
+        res.status(400).json({ error: error.message || 'Import failed' });
+    } finally {
+        importInProgress = false;
+    }
+});
+
+app.post('/api/migrate/save-folder/upload', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    if (importInProgress) {
+        res.status(409).json({ error: 'Another import is already in progress' });
+        return;
+    }
+    importInProgress = true;
+
+    req.socket.setTimeout(0);
+    req.socket.setKeepAlive(true);
+    const prevRequestTimeout = req.socket.server?.requestTimeout;
+    if (req.socket.server) req.socket.server.requestTimeout = 0;
+
+    try {
+        const chunks = [];
+        let totalSize = 0;
+        for await (const chunk of req) {
+            totalSize += chunk.length;
+            if (BACKUP_IMPORT_MAX_BYTES > 0 && totalSize > BACKUP_IMPORT_MAX_BYTES) {
+                res.status(413).json({ error: 'Zip file exceeds max allowed size' });
+                return;
+            }
+            chunks.push(chunk);
+        }
+        const zipBuffer = Buffer.concat(chunks);
+
+        const fflate = require('fflate');
+        let unzipped;
+        try {
+            unzipped = fflate.unzipSync(new Uint8Array(zipBuffer));
+        } catch {
+            res.status(400).json({ error: 'Invalid or corrupted zip file' });
+            return;
+        }
+
+        const entries = [];
+        for (const [entryPath, data] of Object.entries(unzipped)) {
+            if (data.length === 0) continue;
+            const basename = path.basename(entryPath);
+            if (!hexRegex.test(basename)) continue;
+            try {
+                const key = Buffer.from(basename, 'hex').toString('utf-8');
+                entries.push({ key, value: Buffer.from(data) });
+            } catch { /* invalid hex filename */ }
+        }
+
+        if (entries.length === 0) {
+            res.status(400).json({ error: 'No compatible hex files found in zip' });
+            return;
+        }
+
+        const result = importHexEntries(entries);
+        res.json({ ok: true, imported: result.imported });
+    } catch (error) {
+        res.status(400).json({ error: error.message || 'Import failed' });
+    } finally {
+        importInProgress = false;
+        if (req.socket.server && prevRequestTimeout !== undefined) {
+            req.socket.server.requestTimeout = prevRequestTimeout;
+        }
+    }
+});
+
+app.post('/api/migrate/save-folder/cleanup/scan', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    try {
+        if (!existsSync(migrationMarkerPath)) {
+            res.status(400).json({ error: 'Migration has not been completed yet' });
+            return;
+        }
+        const { count, totalSize } = scanHexFilesInDir(savePath);
+        res.json({ count, totalSize });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post('/api/migrate/save-folder/cleanup/execute', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    try {
+        if (!existsSync(migrationMarkerPath)) {
+            res.status(400).json({ error: 'Migration has not been completed yet' });
+            return;
+        }
+        const { hexFiles } = scanHexFilesInDir(savePath);
+        let removed = 0;
+        let freedBytes = 0;
+        for (const f of hexFiles) {
+            try {
+                const filePath = path.join(savePath, f);
+                const stat = require('fs').statSync(filePath);
+                unlinkSync(filePath);
+                freedBytes += stat.size;
+                removed++;
+            } catch { /* skip unremovable files */ }
+        }
+        res.json({ ok: true, removed, freedBytes });
+    } catch (error) {
+        next(error);
+    }
+});
+
 // ── Inlay bulk compression endpoint ──────────────────────────────────────────
 const COMPRESS_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp']);
 
 app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
+    if (!checkActiveSession(req, res)) return;
     const quality = typeof req.body?.quality === 'number' ? req.body.quality : 85;
 
     res.writeHead(200, {
@@ -2797,16 +3023,12 @@ app.post('/api/inlays/compress', sessionAuthMiddleware, async (req, res) => {
 
 // ── Update check endpoint ────────────────────────────────────────────────────
 app.get('/api/update-check', async (req, res) => {
-    if (UPDATE_CHECK_DISABLED || !UPDATE_CHECK_REPO) {
+    if (UPDATE_CHECK_DISABLED) {
         res.json({ currentVersion, hasUpdate: false, severity: 'none', disabled: true });
         return;
     }
-    if (latestReleaseCache) {
-        res.json(latestReleaseCache);
-    } else {
-        const result = await fetchLatestRelease();
-        res.json(result || { currentVersion, hasUpdate: false, severity: 'none' });
-    }
+    const result = await fetchLatestRelease();
+    res.json(result || { currentVersion, hasUpdate: false, severity: 'none' });
 });
 
 
@@ -2901,9 +3123,4 @@ for (const sig of ['SIGTERM', 'SIGINT']) {
         catch { /* non-fatal */ }
     }, 5 * 60 * 1000); // every 5 minutes
 
-    // Check for updates on startup and periodically
-    if (!UPDATE_CHECK_DISABLED && UPDATE_CHECK_REPO) {
-        fetchLatestRelease();
-        setInterval(fetchLatestRelease, UPDATE_CHECK_INTERVAL);
-    }
 })();

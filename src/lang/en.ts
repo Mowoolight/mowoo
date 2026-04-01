@@ -1684,6 +1684,21 @@ export const languageEnglish = {
     loadouts: "Loadouts",
     loadout: "Loadout",
     longPressToPopupEditor: "Long press to open popup editor",
+    importSaveFolderHeader: "Load Save into NodeOnly",
+    importSaveZip: "Load from Save Folder (Zip Upload)",
+    importSaveZipDesc: "Compress your existing RisuAI project's save folder into a zip file and upload it here to import your data. Uploading may fail if the zip file is too large — in that case, copy the save folder directly into the server's save directory and restart to migrate automatically.",
+    importSaveFolderScanning: "Scanning save folder...",
+    importSaveFolderImporting: "Importing save folder...",
+    importSaveFolderConfirmZip: (name: string, size: string) => `Upload "${name}" (${size}) and import? This will replace your current data.`,
+    importSaveFolderNoDatabase: "The save folder does not contain a database file (database/database.bin). Import cannot proceed.",
+    importSaveFolderSuccess: "Import complete.",
+    cleanupMigratedFiles: "Clean Up Migrated Save Files",
+    cleanupMigratedDesc: "If you manually copied save files into the server's save folder, this removes the leftover original files after migration to free up disk space.",
+    cleanupMigratedConfirm: (count: number, size: string) => `Delete ${count} migrated hex files (${size})? These are already in the database.`,
+    cleanupMigratedNoFiles: "No migrated files to clean up.",
+    cleanupMigratedNotReady: "Migration has not been completed yet. Cannot clean up.",
+    cleanupMigratedSuccess: (count: number, size: string) => `Removed ${count} files, freed ${size}.`,
+    cleanupMigratedCleaning: "Cleaning up migrated files...",
 } satisfies I18nTranslation;
 
 type I18nTranslationFunction = (...args: any[]) => string;

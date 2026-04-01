@@ -4,6 +4,13 @@ import { encodeRisuSaveLegacy } from "../storage/risuSave";
 import { getDatabase } from "../storage/database.svelte";
 import { language } from "src/lang";
 
+function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
 export async function SaveLocalBackup(){
     try {
         alertWait("Saving local backup...")
@@ -217,5 +224,71 @@ export function LoadLocalBackup(){
     } catch (error) {
         console.error(error);
         alertError('Failed, Is file corrupted?')
+    }
+}
+
+export async function ImportFromSaveZip() {
+    try {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = '.zip'
+        input.onchange = async () => {
+            if (!input.files || input.files.length === 0) {
+                input.remove()
+                return
+            }
+            const file = input.files[0]
+            input.remove()
+
+            if (!(await alertConfirm(language.importSaveFolderConfirmZip(file.name, formatBytes(file.size))))) return
+            if (!(await alertConfirm(language.backupLoadConfirm2))) return
+
+            alertWait(`Uploading ${file.name}...`)
+            const result = await forageStorage.uploadSaveFolderZip(file, (loaded, total) => {
+                const progress = total > 0 ? ((loaded / total) * 100).toFixed(2) : '0.00'
+                alertWait(`Uploading ${file.name}... (${progress}%)`)
+            })
+
+            alertStore.set({
+                type: "wait",
+                msg: `${language.importSaveFolderSuccess} (${result.imported} files). Refreshing...`
+            })
+            location.search = ''
+            location.reload()
+        }
+
+        input.click()
+    } catch (error) {
+        console.error(error)
+        alertError(error instanceof Error ? error.message : 'Import failed')
+    }
+}
+
+export async function CleanupMigratedFiles() {
+    try {
+        alertWait(language.importSaveFolderScanning)
+        let scan: { count: number, totalSize: number }
+        try {
+            scan = await forageStorage.scanCleanup()
+        } catch (error) {
+            alertError(error instanceof Error ? error.message : language.cleanupMigratedNotReady)
+            return
+        }
+
+        if (scan.count === 0) {
+            alertNormal(language.cleanupMigratedNoFiles)
+            return
+        }
+
+        const sizeStr = formatBytes(scan.totalSize)
+        if (!(await alertConfirm(language.cleanupMigratedConfirm(scan.count, sizeStr)))) return
+
+        alertWait(language.cleanupMigratedCleaning)
+        const result = await forageStorage.executeCleanup()
+
+        alertNormal(language.cleanupMigratedSuccess(result.removed, formatBytes(result.freedBytes)))
+    } catch (error) {
+        console.error(error)
+        alertError(error instanceof Error ? error.message : 'Cleanup failed')
     }
 }
