@@ -620,26 +620,13 @@ const PROXY_STREAM_MAX_PENDING_BYTES = 2 * 1024 * 1024;
 const PROXY_STREAM_MAX_BODY_BASE64_BYTES = 8 * 1024 * 1024;
 const proxyStreamJobs = new Map();
 
-const authenticatedRouteLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 90,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many requests. Please retry shortly.' }
-});
-const authRouteLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 90,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: 'Too many requests. Please retry shortly.' }
-});
 const loginRouteLimiter = rateLimit({
     windowMs: 30 * 1000,
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { error: 'Too many attempts. Please wait and try again later.' }
+    message: { error: 'Too many attempts. Please wait and try again later.' },
+    validate: { xForwardedForHeader: false }
 });
 
 function isHex(str) {
@@ -1202,7 +1189,7 @@ function parseBackupChunk(buffer, onEntry) {
 
 app.get('/', async (req, res, next) => {
 
-    const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || 'Unknown IP';
+    const clientIP = req.ip || 'Unknown IP';
     const timestamp = new Date().toISOString();
     console.log(`[Server] ${timestamp} | Connection from: ${clientIP}`);
     
@@ -1635,20 +1622,20 @@ async function hubProxyFunc(req, res) {
     }
 }
 
-app.get('/proxy', authenticatedRouteLimiter, reverseProxyFunc_get);
-app.get('/proxy2', authenticatedRouteLimiter, reverseProxyFunc_get);
-app.get('/hub-proxy/*', authenticatedRouteLimiter, hubProxyFunc);
+app.get('/proxy', reverseProxyFunc_get);
+app.get('/proxy2', reverseProxyFunc_get);
+app.get('/hub-proxy/*', hubProxyFunc);
 
-app.post('/proxy', authenticatedRouteLimiter, reverseProxyFunc);
-app.post('/proxy2', authenticatedRouteLimiter, reverseProxyFunc);
-app.put('/proxy', authenticatedRouteLimiter, reverseProxyFunc);
-app.put('/proxy2', authenticatedRouteLimiter, reverseProxyFunc);
-app.delete('/proxy', authenticatedRouteLimiter, reverseProxyFunc);
-app.delete('/proxy2', authenticatedRouteLimiter, reverseProxyFunc);
-app.post('/hub-proxy/*', authenticatedRouteLimiter, hubProxyFunc);
+app.post('/proxy', reverseProxyFunc);
+app.post('/proxy2', reverseProxyFunc);
+app.put('/proxy', reverseProxyFunc);
+app.put('/proxy2', reverseProxyFunc);
+app.delete('/proxy', reverseProxyFunc);
+app.delete('/proxy2', reverseProxyFunc);
+app.post('/hub-proxy/*', hubProxyFunc);
 
 // --- Proxy Stream Job endpoints ---
-app.post('/proxy-stream-jobs', authenticatedRouteLimiter, async (req, res) => {
+app.post('/proxy-stream-jobs', async (req, res) => {
     if (!await checkProxyAuth(req, res)) {
         return;
     }
@@ -1697,7 +1684,7 @@ app.post('/proxy-stream-jobs', authenticatedRouteLimiter, async (req, res) => {
     });
 });
 
-app.delete('/proxy-stream-jobs/:jobId', authenticatedRouteLimiter, async (req, res) => {
+app.delete('/proxy-stream-jobs/:jobId', async (req, res) => {
     if (!await checkProxyAuth(req, res)) {
         return;
     }
@@ -1724,7 +1711,7 @@ app.delete('/proxy-stream-jobs/:jobId', authenticatedRouteLimiter, async (req, r
 //     }
 // })
 
-app.get('/api/test_auth', authRouteLimiter, async(req, res) => {
+app.get('/api/test_auth', async(req, res) => {
 
     if(!password){
         res.send({status: 'unset'})
