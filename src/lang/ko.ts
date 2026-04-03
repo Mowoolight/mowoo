@@ -942,7 +942,7 @@ export const languageKorean = {
     "depthPrompt": "깊이 프롬프트",
     "largePortrait": "세로 이미지",
     "lorePlus": "로어북+",
-    "lorePlusThreshold": "임베딩 임계값",
+    "lorePlusTopK": "활성화할 항목 수 (Top-K)",
     "lorePlusModel": "임베딩 모델",
     "lorePlusUsesVoyageKey": "메모리 설정의 Voyage API Key를 사용합니다",
     "reverseProxyOobaMode": "Ooba 모드",

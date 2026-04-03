@@ -137,8 +137,8 @@
         {#if DBState.db.characters[$selectedCharID].lorePlusModel === 'voyage4large'}
             <span class="text-textcolor2 text-xs mb-2">{language.lorePlusUsesVoyageKey ?? 'Uses Voyage API Key from Memory settings'}</span>
         {/if}
-        <span class="text-textcolor mt-2 mb-2">{language.lorePlusThreshold ?? 'Embedding Threshold'}</span>
-        <NumberInput size="sm" min={0} max={1} bind:value={DBState.db.characters[$selectedCharID].lorePlusThreshold} />
+        <span class="text-textcolor mt-2 mb-2">{language.lorePlusTopK ?? 'Top-K Entries'}</span>
+        <NumberInput size="sm" min={1} max={50} bind:value={DBState.db.characters[$selectedCharID].lorePlusTopK} />
     {/if}
 {/if}
 {#if submenu !== 2}

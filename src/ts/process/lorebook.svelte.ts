@@ -676,6 +676,7 @@ async function loadLoreBookEmbeddingPrompt(
     page: number,
 ){
     const threshold = char.lorePlusThreshold ?? 0.65
+    const topK = char.lorePlusTopK ?? 5
     const processer = new HypaProcesser(char.lorePlusModel || 'voyage4large')
 
     let matchLog:{
@@ -878,9 +879,11 @@ async function loadLoreBookEmbeddingPrompt(
         })
     }
 
-    // Collect entries that need embedding search (not alwaysActive, not forceState, still activated after decorator)
+    // Collect entries that need embedding search
+    // Exclude: alwaysActive, forceState set, empty docText, and entries without key (non-active record-only entries)
     const embeddingCandidates = parsed.filter(p =>
-        p.activated && p.forceState === 'none' && !fullLore[p.index].alwaysActive && p.docText.length > 0
+        p.activated && p.forceState === 'none' && !fullLore[p.index].alwaysActive
+        && p.docText.length > 0 && fullLore[p.index].key
     )
 
     // Embed all candidate documents
@@ -889,14 +892,19 @@ async function loadLoreBookEmbeddingPrompt(
         await processer.addText(docTexts)
     }
 
-    // Score each candidate against the query
+    // Score each candidate against the query and select top-K
+    const topKSet = new Set<number>()
     let embeddingScores = new Map<number, number>()
     if(docTexts.length > 0 && queryText.trim().length > 0){
         const scored = await processer.similaritySearchScored(queryText)
+        let counted = 0
         for(const [text, score] of scored){
+            if(counted >= topK) break
             const candidate = embeddingCandidates.find(p => p.docText === text)
             if(candidate){
+                topKSet.add(candidate.index)
                 embeddingScores.set(candidate.index, score)
+                counted++
             }
         }
     }
@@ -925,12 +933,16 @@ async function loadLoreBookEmbeddingPrompt(
         if(!activated || p.forceState !== 'none' || fullLore[p.index].alwaysActive){
             // skip embedding check
         }
+        else if(!fullLore[p.index].key){
+            // no key = record-only entry, never activate via embedding
+            activated = false
+        }
         else{
-            const score = embeddingScores.get(p.index) ?? 0
-            if(score < threshold){
+            if(!topKSet.has(p.index)){
                 activated = false
             }
             else{
+                const score = embeddingScores.get(p.index) ?? 0
                 matchLog.push({
                     prompt: p.docText.slice(0, 100),
                     source: fullLore[p.index].comment || `lorebook ${p.index}`,

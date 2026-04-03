@@ -1058,7 +1058,7 @@ export const languageEnglish = {
     depthPrompt: "Depth Prompt",
     largePortrait: "Portrait",
     lorePlus: "LoreBook+",
-    lorePlusThreshold: "Embedding Threshold",
+    lorePlusTopK: "Top-K Entries",
     lorePlusModel: "Embedding Model",
     lorePlusUsesVoyageKey: "Uses Voyage API Key from Memory settings",
     reverseProxyOobaMode: "Ooba Mode",
