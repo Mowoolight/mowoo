@@ -6,6 +6,8 @@
     import { addLorebook, addLorebookFolder, exportLoreBook, importLoreBook } from "../../../ts/process/lorebook.svelte";
     import Check from "../../UI/GUI/CheckInput.svelte";
     import NumberInput from "../../UI/GUI/NumberInput.svelte";
+    import SelectInput from "../../UI/GUI/SelectInput.svelte";
+    import OptionInput from "../../UI/GUI/OptionInput.svelte";
     import LoreBookList from "./LoreBookList.svelte";
     import Help from "src/lib/Others/Help.svelte";
     import { selectedCharID } from "src/ts/stores.svelte";
@@ -116,6 +118,28 @@
         {/if}
 
     </div>
+    {#if DBState.db.characters[$selectedCharID].lorePlus}
+        <span class="text-textcolor mt-4 mb-2">{language.lorePlusModel ?? 'Embedding Model'}</span>
+        <SelectInput className="mb-2" bind:value={DBState.db.characters[$selectedCharID].lorePlusModel}>
+            <OptionInput value="voyage4large">Voyage Large 2</OptionInput>
+            <OptionInput value="openai3small">OpenAI text-embedding-3-small</OptionInput>
+            <OptionInput value="openai3large">OpenAI text-embedding-3-large</OptionInput>
+            {#if 'gpu' in navigator}
+                <OptionInput value="MiniLMGPU">MiniLM L6 v2 (GPU)</OptionInput>
+                <OptionInput value="bgem3GPU">BGE Medium 3 (GPU)</OptionInput>
+                <OptionInput value="multiMiniLMGPU">Multilingual MiniLM L12 v2 (GPU)</OptionInput>
+            {/if}
+            <OptionInput value="MiniLM">MiniLM L6 v2 (CPU)</OptionInput>
+            <OptionInput value="bgem3">BGE Medium 3 (CPU)</OptionInput>
+            <OptionInput value="multiMiniLM">Multilingual MiniLM L12 v2 (CPU)</OptionInput>
+            <OptionInput value="custom">Custom (OpenAI-compatible)</OptionInput>
+        </SelectInput>
+        {#if DBState.db.characters[$selectedCharID].lorePlusModel === 'voyage4large'}
+            <span class="text-textcolor2 text-xs mb-2">{language.lorePlusUsesVoyageKey ?? 'Uses Voyage API Key from Memory settings'}</span>
+        {/if}
+        <span class="text-textcolor mt-2 mb-2">{language.lorePlusThreshold ?? 'Embedding Threshold'}</span>
+        <NumberInput size="sm" min={0} max={1} bind:value={DBState.db.characters[$selectedCharID].lorePlusThreshold} />
+    {/if}
 {/if}
 {#if submenu !== 2}
 

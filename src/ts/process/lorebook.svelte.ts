@@ -11,6 +11,7 @@ import { downloadFile } from "../globalApi.svelte";
 import { getModuleLorebooks } from "./modules";
 import { CCardLib } from "@risuai/ccardlib";
 import { v4 } from "uuid";
+import { HypaProcesser } from "./memory/hypamemory";
 
 export function addLorebook(type:number) {
     const selectedID = get(selectedCharID)
@@ -85,6 +86,11 @@ export async function loadLoreBookV3Prompt(){
     const fullWordMatchingSetting = char.loreSettings?.fullWordMatching ?? false
     const chatLength = currentChat.length + 1 //includes first message
     const recursiveScanning = char.loreSettings?.recursiveScanning ?? true
+
+    if(char.lorePlus){
+        return await loadLoreBookEmbeddingPrompt(fullLore, currentChat, loreDepth, loreToken, chatLength, char, page)
+    }
+
     let recursivePrompt:{
         prompt: string,
         source: string,
@@ -658,6 +664,349 @@ export async function loadLoreBookV3Prompt(){
         matchLog: matchLog,
     }
 
+}
+
+async function loadLoreBookEmbeddingPrompt(
+    fullLore: loreBook[],
+    currentChat: Message[],
+    loreDepth: number,
+    loreToken: number,
+    chatLength: number,
+    char: any,
+    page: number,
+){
+    const threshold = char.lorePlusThreshold ?? 0.65
+    const processer = new HypaProcesser(char.lorePlusModel || 'voyage4large')
+
+    let matchLog:{
+        prompt: string,
+        source: string
+        activated: string
+    }[] = []
+
+    // Build query from recent messages
+    const sliced = currentChat.slice(Math.max(0, currentChat.length - loreDepth))
+    const queryText = sliced.map(m => m.data).join('\n')
+
+    // Pre-parse all entries: extract decorators, build document texts
+    const parsed:{
+        index: number
+        content: string
+        docText: string
+        activated: boolean
+        forceState: string
+        pos: string
+        depth: number
+        order: number
+        priority: number
+        role: 'system'|'user'|'assistant'
+        inject: {
+            operation:'append'|'prepend'|'replace',
+            location:string,
+            param:string
+            lore:boolean
+        }|null
+        keepActivateAfterMatch: boolean
+        dontActivateAfterMatch: boolean
+    }[] = []
+
+    for(let i=0;i<fullLore.length;i++){
+        if(fullLore[i].mode === 'folder'){
+            continue
+        }
+
+        let activated = true
+        let pos = ''
+        let inject:{
+            operation:'append'|'prepend'|'replace',
+            location:string,
+            param:string
+            lore:boolean
+        } = null
+        let depth = 0
+        let order = fullLore[i].insertorder
+        let priority = fullLore[i].insertorder
+        let forceState:string = 'none'
+        let role:'system'|'user'|'assistant' = 'system'
+        let keepActivateAfterMatch = false
+        let dontActivateAfterMatch = false
+
+        if(fullLore[i].mode === 'child'){
+            activated = false
+            for(let j=0;j<i;j++){
+                if(fullLore[j].id === fullLore[i].id){
+                    if(true){
+                        fullLore[i].comment = fullLore[j].comment
+                        fullLore[i].content = fullLore[j].content
+                        fullLore[i].alwaysActive = true
+                        activated = true
+                    }
+                    break
+                }
+            }
+        }
+
+        const content = CCardLib.decorator.parse(fullLore[i].content, (name, arg) => {
+            switch(name){
+                case 'end':{
+                    pos = 'depth'
+                    depth = 0
+                    return
+                }
+                case 'activate_only_after':{
+                    const int = parseInt(arg[0])
+                    if(Number.isNaN(int)) return false
+                    if(chatLength < int) activated = false
+                    return
+                }
+                case 'activate_only_every': {
+                    const int = parseInt(arg[0])
+                    if(Number.isNaN(int)) return false
+                    if(chatLength % int !== 0) activated = false
+                    return
+                }
+                case 'keep_activate_after_match':{
+                    const vara = getChatVar('__internal_ka_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                    if(vara === 'true') forceState = 'activate'
+                    else keepActivateAfterMatch = true
+                    return false
+                }
+                case 'dont_activate_after_match': {
+                    const vara = getChatVar('__internal_da_' + (fullLore[i].id ?? pickHashRand(5555,fullLore[i].content).toString()))
+                    if(vara === 'true') forceState = 'deactivate'
+                    else dontActivateAfterMatch = true
+                    return false
+                }
+                case 'depth':
+                case 'reverse_depth':{
+                    const int = parseInt(arg[0])
+                    if(Number.isNaN(int)) return false
+                    depth = int
+                    pos = name === 'depth' ? 'depth' : 'reverse_depth'
+                    return
+                }
+                case 'instruct_depth':
+                case 'reverse_instruct_depth':
+                case 'instruct_scan_depth':
+                    return false
+                case 'role':{
+                    if(arg[0] === 'user' || arg[0] === 'assistant' || arg[0] === 'system'){
+                        role = arg[0]
+                        return
+                    }
+                    return false
+                }
+                case 'is_greeting':{
+                    const int = parseInt(arg[0])
+                    if(Number.isNaN(int)) return false
+                    if(((char.chats[page].fmIndex ?? -1) + 1) !== int) activated = false
+                    return
+                }
+                case 'position':{
+                    if(arg[0].startsWith('pt_') || ["after_desc", "before_desc", "personality", "scenario"].includes(arg[0])){
+                        pos = arg[0]
+                        return
+                    }
+                    return false
+                }
+                case 'inject_lore':{
+                    inject ??= { operation: 'append', location: '', param: '', lore: true }
+                    inject.location = arg.join(' ')
+                    inject.lore = true
+                    return
+                }
+                case 'inject_at':{
+                    inject ??= { operation: 'append', location: '', param: '', lore: false }
+                    inject.location = arg.join(' ')
+                    inject.lore = false
+                    return
+                }
+                case 'inject_replace':{
+                    inject ??= { operation: 'replace', location: '', param: '', lore: false }
+                    inject.operation = 'replace'
+                    inject.param = arg.join(' ')
+                    return
+                }
+                case 'inject_prepend':{
+                    inject ??= { operation: 'prepend', location: '', param: '', lore: false }
+                    inject.operation = 'prepend'
+                    inject.param = arg.join(' ')
+                    return
+                }
+                case 'ignore_on_max_context':{
+                    priority = -1000
+                    return
+                }
+                case 'activate':{
+                    forceState = 'activate'
+                    return
+                }
+                case 'dont_activate':{
+                    forceState = 'deactivate'
+                    return
+                }
+                case 'probability':{
+                    if(Math.random() * 100 > parseInt(arg[0])) activated = false
+                    return
+                }
+                case 'priority':{
+                    priority = parseInt(arg[0])
+                    return
+                }
+                default:
+                    return false
+            }
+        })
+
+        // Build document text: comment + content for embedding
+        const docText = ((fullLore[i].comment ? fullLore[i].comment + '\n' : '') + content).trim()
+
+        parsed.push({
+            index: i,
+            content,
+            docText,
+            activated,
+            forceState,
+            pos,
+            depth,
+            order,
+            priority,
+            role,
+            inject: inject ?? null,
+            keepActivateAfterMatch,
+            dontActivateAfterMatch
+        })
+    }
+
+    // Collect entries that need embedding search (not alwaysActive, not forceState, still activated after decorator)
+    const embeddingCandidates = parsed.filter(p =>
+        p.activated && p.forceState === 'none' && !fullLore[p.index].alwaysActive && p.docText.length > 0
+    )
+
+    // Embed all candidate documents
+    const docTexts = embeddingCandidates.map(p => p.docText)
+    if(docTexts.length > 0){
+        await processer.addText(docTexts)
+    }
+
+    // Score each candidate against the query
+    let embeddingScores = new Map<number, number>()
+    if(docTexts.length > 0 && queryText.trim().length > 0){
+        const scored = await processer.similaritySearchScored(queryText)
+        for(const [text, score] of scored){
+            const candidate = embeddingCandidates.find(p => p.docText === text)
+            if(candidate){
+                embeddingScores.set(candidate.index, score)
+            }
+        }
+    }
+
+    // Build actives
+    let actives:{
+        depth:number,
+        pos:string,
+        prompt:string
+        role:'system'|'user'|'assistant'
+        order:number
+        tokens:number
+        priority:number
+        source:string
+        inject:{
+            operation:'append'|'prepend'|'replace',
+            location:string,
+            param:string
+            lore:boolean
+        }|null
+    }[] = []
+
+    for(const p of parsed){
+        let activated = p.activated
+
+        if(!activated || p.forceState !== 'none' || fullLore[p.index].alwaysActive){
+            // skip embedding check
+        }
+        else{
+            const score = embeddingScores.get(p.index) ?? 0
+            if(score < threshold){
+                activated = false
+            }
+            else{
+                matchLog.push({
+                    prompt: p.docText.slice(0, 100),
+                    source: fullLore[p.index].comment || `lorebook ${p.index}`,
+                    activated: `embedding score: ${score.toFixed(4)}`
+                })
+            }
+        }
+
+        if(p.forceState === 'activate'){
+            activated = true
+        }
+        else if(p.forceState === 'deactivate'){
+            activated = false
+        }
+
+        if(activated){
+            actives.push({
+                depth: p.depth,
+                pos: p.pos,
+                prompt: p.content,
+                role: p.role,
+                order: p.order,
+                tokens: await tokenize(p.content),
+                priority: p.priority,
+                source: fullLore[p.index].comment || `lorebook ${p.index}`,
+                inject: p.inject
+            })
+
+            if(p.keepActivateAfterMatch){
+                setChatVar('__internal_ka_' + (fullLore[p.index].id ?? pickHashRand(5555,fullLore[p.index].content).toString()), 'true')
+            }
+            if(p.dontActivateAfterMatch){
+                setChatVar('__internal_da_' + (fullLore[p.index].id ?? pickHashRand(5555,fullLore[p.index].content).toString()), 'true')
+            }
+        }
+    }
+
+    // Same token budget / priority / ordering logic as original
+    const activesSorted = actives.sort((a,b) => b.priority - a.priority)
+
+    let usedTokens = 0
+    const activesFiltered = activesSorted.filter((act) => {
+        if(usedTokens + act.tokens <= loreToken){
+            usedTokens += act.tokens
+            return true
+        }
+        return false
+    })
+
+    let activesResorted = activesFiltered.sort((a,b) => b.order - a.order)
+
+    const loreinjectionLores = activesResorted.filter((act) => act?.inject?.lore)
+    activesResorted = activesResorted.filter((act) => !act?.inject?.lore)
+
+    for(const lore of loreinjectionLores){
+        const foundLoreIndex = activesResorted.findIndex((l) => l.source === lore.inject.location)
+        if(foundLoreIndex !== -1){
+            const foundLore = activesResorted[foundLoreIndex]
+            switch(lore.inject.operation){
+                case 'append':
+                    foundLore.prompt += ' ' + lore.prompt
+                    break
+                case 'prepend':
+                    foundLore.prompt = lore.prompt + ' ' + foundLore.prompt
+                    break
+                case 'replace':
+                    foundLore.prompt = foundLore.prompt.replace(lore.inject.param, lore.prompt)
+                    break
+            }
+        }
+    }
+
+    return {
+        actives: activesResorted.reverse(),
+        matchLog: matchLog,
+    }
 }
 
 export async function importLoreBook(mode:'global'|'local'|'sglobal'){

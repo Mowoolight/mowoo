@@ -4,7 +4,7 @@ import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
 import { makeHashedStorageKey, readPersistentJson, readPersistentJsonBulk, writePersistentJson } from "src/ts/storage/persistentKv";
 
-export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'
+export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'|'voyage4large'
 // In a typical environment, bge-m3 is a heavy model.
 // If your GPU can't handle this model, you'll see errror below.
 // Failed to execute 'mapAsync' on 'GPUBuffer': [Device] is lost
@@ -166,6 +166,36 @@ export class HypaProcesser{
             const result:VectorArray[] = []
             for(let i=0;i<gf.data.data.length;i++){
                 result.push(gf.data.data[i].data[0].embedding)
+            }
+            return result
+        }
+        if(this.model === 'voyage4large'){
+            const db = getDatabase()
+            const apiKey = db.voyageApiKey?.trim()
+            if(!apiKey){
+                throw new Error('Voyage 4 Large requires a Voyage API Key')
+            }
+
+            const inputs:string[] = Array.isArray(input) ? input : [input]
+            const gf = await globalFetch("https://api.voyageai.com/v1/embeddings", {
+                headers: {
+                    "Authorization": "Bearer " + apiKey,
+                    "Content-Type": "application/json"
+                },
+                body: {
+                    "input": inputs,
+                    "model": "voyage-large-2",
+                    "input_type": inputType
+                }
+            })
+
+            if(!gf.ok || !gf.data.data){
+                throw new Error(JSON.stringify(gf.data))
+            }
+
+            const result:VectorArray[] = []
+            for(let i=0;i<gf.data.data.length;i++){
+                result.push(gf.data.data[i].embedding)
             }
             return result
         }

@@ -1510,6 +1510,8 @@ export interface character{
     extentions?:{[key:string]:any}
     largePortrait?:boolean
     lorePlus?:boolean
+    lorePlusThreshold?:number
+    lorePlusModel?:HypaModel
     inlayViewScreen?:boolean
     hfTTS?: {
         model: string
@@ -1585,6 +1587,8 @@ export interface groupChat{
     oneAtTime?:boolean
     virtualscript?:string
     lorePlus?:boolean
+    lorePlusThreshold?:number
+    lorePlusModel?:HypaModel
     trashTime?:number
     nickname?:string
     defaultVariables?:string
