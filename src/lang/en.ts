@@ -273,6 +273,8 @@ export const languageEnglish = {
             "If enabled, regex scripts will be applied to the input chat messages when regenerating summaries in the HypaV3 modal.",
         hypaV3DoNotSummarizeUserMessage:
             "If enabled, user messages are excluded from the max messages per summary count.",
+        hypaV3UseWholeSummaryChunk:
+            "If enabled, each summary is embedded as a whole unit instead of being split by paragraphs. Useful when using high-capacity embedding models like voyage-4-large.",
         hypaV3EnableSimilarityCorrection:
             "If enabled, a summary of recent chats is additionally used as a query. Does not work with the experimental HypaMemory V3.",
         hypaV3UseExperimentalImpl:
@@ -1375,8 +1377,10 @@ export const languageEnglish = {
         preserveOrphanedMemoryLabel: "Preserve Orphaned Memory",
         applyRegexScriptWhenRerollingLabel: "Apply Regex Script When Rerolling",
         doNotSummarizeUserMessageLabel: "Do Not Summarize User Message",
+        useWholeSummaryChunkLabel: "Use Whole Summary as Chunk",
         voyageRerankEnabledLabel: "Enable Voyage Reranker (rerank-2.5)",
         voyageRerankTopKLabel: "Rerank Top-K Candidates",
+        readOnlyModeLabel: "Read-Only Mode (Retrieve Only, No New Summarization)",
     },
     hypaV3Modal: {
         titleLabel: "HypaV3",

@@ -39,6 +39,7 @@ export interface HypaV3Settings {
     processRegexScript: boolean;
     doNotSummarizeUserMessage: boolean;
     voyageRerankEnabled: boolean;
+    useWholeSummaryChunk: boolean;
     // Experimental
     useExperimentalImpl: boolean;
     summarizationRequestsPerMinute: number;
@@ -47,6 +48,7 @@ export interface HypaV3Settings {
     embeddingMaxConcurrent: number;
     alwaysToggleOn: boolean;
     queryChatCount: number;
+    readOnlyMode: boolean;
 }
 
 interface HypaV3Data {
@@ -241,6 +243,17 @@ async function hypaMemoryV3MainExp(
         maxContextTokens * (1 - settings.extraSummarizationRatio);
     const toSummarizeArray: OpenAIChat[][] = [];
 
+    // Read-only mode: skip summarization, just trim old chats to fit context
+    if (settings.readOnlyMode) {
+        console.log(logPrefix, "Read-only mode enabled, skipping summarization.");
+
+        while (currentTokens > maxContextTokens && startIdx < chats.length - settings.queryChatCount) {
+            const chat = chats[startIdx];
+            const chatTokens = await tokenizer.tokenizeChat(chat);
+            currentTokens -= chatTokens;
+            startIdx++;
+        }
+    } else {
     while (summarizationMode) {
         if (currentTokens <= targetTokens) {
             break;
@@ -450,6 +463,7 @@ async function hypaMemoryV3MainExp(
             });
         }
     }
+    } // end of !readOnlyMode
 
     console.log(
         logPrefix,
@@ -600,6 +614,13 @@ async function hypaMemoryV3MainExp(
         // Dynamically generate embedding texts
         const ebdTexts: EmbeddingText<Summary>[] = unusedSummaries.flatMap(
             (summary, summaryIndex) => {
+                if (settings.useWholeSummaryChunk) {
+                    return [{
+                        id: `${summaryIndex}-0`,
+                        content: summary.text.trim(),
+                        metadata: summary,
+                    }];
+                }
                 const splitted = summary.text
                     .split("\n\n")
                     .filter((e) => e.trim().length > 0);
@@ -1060,6 +1081,17 @@ async function hypaMemoryV3Main(
     const targetTokens =
         maxContextTokens * (1 - settings.extraSummarizationRatio);
 
+    // Read-only mode: skip summarization, just trim old chats to fit context
+    if (settings.readOnlyMode) {
+        console.log(logPrefix, "Read-only mode enabled, skipping summarization.");
+
+        while (currentTokens > maxContextTokens && startIdx < chats.length - settings.queryChatCount) {
+            const chat = chats[startIdx];
+            const chatTokens = await tokenizer.tokenizeChat(chat);
+            currentTokens -= chatTokens;
+            startIdx++;
+        }
+    } else {
     while (summarizationMode) {
         if (currentTokens <= targetTokens) {
             break;
@@ -1195,6 +1227,7 @@ async function hypaMemoryV3Main(
         currentTokens -= toSummarizeTokens;
         startIdx = endIdx;
     }
+    } // end of !readOnlyMode
 
     console.log(
         logPrefix,
@@ -1356,6 +1389,13 @@ async function hypaMemoryV3Main(
         const summaryChunks: SummaryChunk[] = [];
 
         unusedSummaries.forEach((summary) => {
+            if (settings.useWholeSummaryChunk) {
+                summaryChunks.push({
+                    text: summary.text.trim(),
+                    summary,
+                });
+                return;
+            }
             const splitted = summary.text
                 .split("\n\n")
                 .filter((e) => e.trim().length > 0);
@@ -1845,6 +1885,7 @@ export function createHypaV3Preset(
         processRegexScript: false,
         doNotSummarizeUserMessage: false,
         voyageRerankEnabled: false,
+        useWholeSummaryChunk: false,
         // Experimental
         useExperimentalImpl: false,
         summarizationRequestsPerMinute: 20,
@@ -1853,6 +1894,7 @@ export function createHypaV3Preset(
         embeddingMaxConcurrent: 1,
         alwaysToggleOn: false,
         queryChatCount: 3,
+        readOnlyMode: false,
     };
 
     if (

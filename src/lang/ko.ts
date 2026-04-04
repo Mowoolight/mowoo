@@ -171,6 +171,7 @@ export const languageKorean = {
         "hypaV3PreserveOrphanedMemory": "활성화 시 삭제된 채팅 메시지를 참조하는 요약본이 보존됩니다. 비활성화하면 원본 메시지가 없어진 요약본이 자동으로 제거됩니다.",
         "hypaV3ProcessRegexScript": "활성화 시 HypaV3 모달에서 요약을 재생성할 때 입력되는 원본 채팅에 정규식 스크립트가 적용됩니다.",
         "hypaV3DoNotSummarizeUserMessage": "활성화 시 요약본당 최대 메시지 수에서 유저 메시지를 제외한 나머지만 요약에 사용됩니다.",
+        "hypaV3UseWholeSummaryChunk": "활성화 시 요약본을 문단 단위로 분할하지 않고 요약본 전체를 하나의 청크로 임베딩합니다. voyage-4-large 등 대용량 임베딩 모델 사용 시 유용합니다.",
         "hypaV3EnableSimilarityCorrection": "활성화 시 최근 채팅 원문의 전체 요약본을 추가로 유사도 분석에 사용합니다. 실험적 하이파메모리 V3에서는 작동하지 않습니다.",
         "hypaV3UseExperimentalImpl": "실험적 하이파메모리 V3으로 전환합니다. Rate limit 설정이 가능해지고 쿼리 방식이 변경됩니다.",
         "hypaV3AlwaysToggleOn": "활성화 시 캐릭터를 선택할 때 하이파메모리 토글이 자동으로 활성화됩니다.",
@@ -1257,8 +1258,10 @@ export const languageKorean = {
         "preserveOrphanedMemoryLabel": "고아 메모리 보존",
         "applyRegexScriptWhenRerollingLabel": "재생성 시 정규식 스크립트 적용",
         "doNotSummarizeUserMessageLabel": "유저 메시지 요약하지 않기",
+        "useWholeSummaryChunkLabel": "요약본 단위 청크 사용",
         "voyageRerankEnabledLabel": "Voyage Reranker 활성화 (rerank-2.5)",
-        "voyageRerankTopKLabel": "Rerank Top-K 후보 수"
+        "voyageRerankTopKLabel": "Rerank Top-K 후보 수",
+        "readOnlyModeLabel": "읽기 전용 모드 (기존 요약만 검색, 새 요약 생성 안 함)"
     },
     "hypaV3Modal": {
         "titleLabel": "HypaV3",

@@ -1218,6 +1218,14 @@
                     <Check name={language.hypaV3Settings.doNotSummarizeUserMessageLabel} bind:check={settings.doNotSummarizeUserMessage} />
                     <Help key="hypaV3DoNotSummarizeUserMessage"/>
                 </div>
+                <div class="mb-2 flex items-center">
+                    <Check name={language.hypaV3Settings.readOnlyModeLabel} bind:check={settings.readOnlyMode} />
+                    <Help key="hypaV3ReadOnlyMode"/>
+                </div>
+                <div class="mb-2 flex items-center">
+                    <Check name={language.hypaV3Settings.useWholeSummaryChunkLabel} bind:check={settings.useWholeSummaryChunk} />
+                    <Help key="hypaV3UseWholeSummaryChunk"/>
+                </div>
                 <Accordion name="Advanced Settings" styled>
                     <div class="mb-2 flex items-center">
                         <Check name="Use Experimental Implementation" bind:check={settings.useExperimentalImpl} />
