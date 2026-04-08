@@ -2666,7 +2666,7 @@ app.get('/api/backup/export', async (req, res, next) => {
     if(!await checkAuth(req, res)){ return; }
     try {
         // Flush any pending patches to ensure export includes latest data
-        flushPendingDb();
+        await flushPendingDb();
         const inlayFiles = await listInlayFiles();
         const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
             const stat = await fs.stat(entry.filePath);
@@ -2849,7 +2849,7 @@ app.post('/api/backup/server/save', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
     if (!checkActiveSession(req, res)) return;
     try {
-        flushPendingDb();
+        await flushPendingDb();
 
         const inlayFiles = await listInlayFiles();
         const inlayEntries = await Promise.all(inlayFiles.map(async (entry) => {
@@ -3225,12 +3225,12 @@ function clearExistingData() {
     clearEntities();
 }
 
-function importHexFilesFromDir(dirPath) {
+async function importHexFilesFromDir(dirPath) {
     const { hexFiles, hasDatabase } = scanHexFilesInDir(dirPath);
     if (hexFiles.length === 0) return { imported: 0 };
     if (!hasDatabase) throw new Error('Save folder does not contain database/database.bin');
 
-    flushPendingDb();
+    await flushPendingDb();
     createBackupAndRotate();
     clearExistingData();
     invalidateDbCache();
@@ -3253,12 +3253,12 @@ function importHexFilesFromDir(dirPath) {
     return { imported: hexFiles.length };
 }
 
-function importHexEntries(entries) {
+async function importHexEntries(entries) {
     if (entries.length === 0) return { imported: 0 };
     const hasDb = entries.some(e => e.key === 'database/database.bin');
     if (!hasDb) throw new Error('Data does not contain database/database.bin');
 
-    flushPendingDb();
+    await flushPendingDb();
     createBackupAndRotate();
     clearExistingData();
     invalidateDbCache();
@@ -3570,9 +3570,9 @@ async function startServer() {
 
 // Graceful shutdown: flush pending patches and checkpoint WAL before exit
 for (const sig of ['SIGTERM', 'SIGINT']) {
-    process.on(sig, () => {
+    process.on(sig, async () => {
         console.log(`[Server] Received ${sig}, flushing pending data...`);
-        try { flushPendingDb(); } catch (e) { console.error('[Server] Flush error:', e); }
+        try { await flushPendingDb(); } catch (e) { console.error('[Server] Flush error:', e); }
         try { checkpointWal('TRUNCATE'); } catch { /* non-fatal */ }
         process.exit(0);
     });

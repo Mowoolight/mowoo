@@ -785,9 +785,11 @@ export function changeChar(index: number, arg:{
             // Fire-and-forget: hydrate placeholder, then load toggles
             const db = getDatabase()
             const char = db.characters[index]
+            const capturedIndex = index
             if(char){
                 void ensureChatHydrated(char.chats, char.chatPage, char.chaId).then((hydrated) => {
-                    if(hydrated) loadTogglesFromChat(hydrated)
+                    // Only apply toggles if this character is still selected
+                    if(hydrated && get(selectedCharID) === capturedIndex) loadTogglesFromChat(hydrated)
                 })
             }
         } else {
