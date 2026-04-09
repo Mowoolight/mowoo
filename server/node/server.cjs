@@ -122,13 +122,14 @@ function invalidateDbCache() {
  */
 function chatToStub(chat) {
     if (!chat || chat._stub) return chat;
-    return {
+    const stub = {
         id: chat.id || '',
-        name: chat.name,
-        lastDate: chat.lastDate,
-        folderId: chat.folderId,
+        name: chat.name ?? '',
         _stub: true,
     };
+    if (chat.lastDate != null) stub.lastDate = chat.lastDate;
+    if (chat.folderId != null) stub.folderId = chat.folderId;
+    return stub;
 }
 
 /**
@@ -177,13 +178,14 @@ function mergeChatStubWithFullChat(stub, fullChat) {
     if (!stub || !stub._stub) {
         return fullChat;
     }
-    return {
+    const merged = {
         ...fullChat,
         id: stub.id || fullChat.id || '',
         name: stub.name,
-        lastDate: stub.lastDate,
-        folderId: stub.folderId,
     };
+    if (stub.lastDate != null) merged.lastDate = stub.lastDate;
+    if (stub.folderId != null) merged.folderId = stub.folderId;
+    return merged;
 }
 
 function reassembleFullDb(strippedDb) {
@@ -2517,7 +2519,7 @@ app.post('/api/patch', async (req, res, next) => {
                     const decoded = normalizeJSON(await decodeRisuSave(fileContent));
                     if (decodedKey === 'database/database.bin') {
                         initChatStore(decoded);
-                        dbCache[filePath] = stripChatsFromDb(decoded);
+                        dbCache[filePath] = normalizeJSON(stripChatsFromDb(decoded));
                     } else {
                         dbCache[filePath] = decoded;
                     }

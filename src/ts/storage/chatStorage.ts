@@ -10,16 +10,17 @@ import { tick } from "svelte"
  * `_placeholder: true` marks it for hydration and dirty-tracking suppression.
  */
 export function stubToPlaceholder(stub: ChatStub): Chat {
-    return {
+    const placeholder: Chat = {
         message: [],
         note: '',
         name: stub.name,
         localLore: [],
         id: stub.id,
-        lastDate: stub.lastDate,
-        folderId: stub.folderId,
         _placeholder: true,
     }
+    if (stub.lastDate != null) placeholder.lastDate = stub.lastDate
+    if (stub.folderId != null) placeholder.folderId = stub.folderId
+    return placeholder
 }
 
 /**
@@ -27,13 +28,14 @@ export function stubToPlaceholder(stub: ChatStub): Chat {
  */
 export function chatToStub(chat: Chat | ChatStub): ChatStub {
     if (isChatStub(chat)) return chat
-    return {
+    const stub: ChatStub = {
         id: chat.id ?? '',
-        name: chat.name,
-        lastDate: chat.lastDate,
-        folderId: chat.folderId,
+        name: chat.name ?? '',
         _stub: true,
     }
+    if (chat.lastDate != null) stub.lastDate = chat.lastDate
+    if (chat.folderId != null) stub.folderId = chat.folderId
+    return stub
 }
 
 /**
