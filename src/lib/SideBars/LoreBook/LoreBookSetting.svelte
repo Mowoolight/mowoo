@@ -77,7 +77,7 @@
     {#if !globalMode}
         <span class="text-textcolor2 mt-2 mb-6 text-sm">{submenu === 0 ? language.globalLoreInfo : language.localLoreInfo}</span>
     {/if}
-    <LoreBookList globalMode={globalMode} submenu={submenu} lorePlus={(!globalMode) && DBState.db.characters[$selectedCharID]?.lorePlus} />
+    <LoreBookList globalMode={globalMode} submenu={submenu} />
 {:else}
     {#if DBState.db.characters[$selectedCharID].loreSettings}
         <div class="flex items-center mt-4">

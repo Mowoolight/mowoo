@@ -5,6 +5,7 @@
     import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, SplitIcon, FolderPlusIcon, BookmarkCheckIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character, groupChat } from "src/ts/storage/database.svelte";
+    import { ensureChatHydrated } from "src/ts/storage/chatStorage";
     import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
     import { selectedCharID } from "src/ts/stores.svelte";
 
@@ -20,6 +21,7 @@
     import { language } from "src/lang";
     import Toggles from "./Toggles.svelte";
     import PersonaBind from "./PersonaBind.svelte";
+    import PresetBind from "./PresetBind.svelte";
     import ModelList from "../UI/ModelList.svelte";
     import { changeChatTo, createChatCopyName, requestImmediateSave } from "src/ts/globalApi.svelte";
 
@@ -147,9 +149,7 @@
         chats.unshift(newChat)
         chara.chats = chats
         changeChatTo(0)
-        void requestImmediateSave({
-            skipBackups: true
-        })
+        void requestImmediateSave()
         $ReloadGUIPointer += 1
     }}>{language.newChat}</Button>
 
@@ -260,15 +260,22 @@
                                 const option = await alertChatOptions()
                                 switch(option){
                                     case 0:{
-                                        const newChat = $state.snapshot(chara.chats[chara.chats.indexOf(chat)])
+                                        const chatIdx = chara.chats.indexOf(chat)
+                                        // Hydrate placeholder before copying to ensure full data
+                                        if(chara.chats[chatIdx]?._placeholder){
+                                            await ensureChatHydrated(chara.chats, chatIdx, (chara as character).chaId)
+                                        }
+                                        if(chara.chats[chatIdx]?._placeholder){
+                                            alertError('Failed to load chat data.')
+                                            break
+                                        }
+                                        const newChat = $state.snapshot(chara.chats[chatIdx])
                                         newChat.name = createChatCopyName(newChat.name, 'Copy')
                                         newChat.id = v4()
                                         chara.chats.unshift(newChat)
                                         changeChatTo(0)
                                         chara.chats = chara.chats
-                                        void requestImmediateSave({
-                                            skipBackups: true
-                                        })
+                                        void requestImmediateSave()
                                         break
                                     }
                                     case 1:{
@@ -332,9 +339,7 @@
                                     let chats = chara.chats
                                     chats.splice(chara.chats.indexOf(chat), 1)
                                     chara.chats = chats
-                                    void requestImmediateSave({
-                                        skipBackups: true
-                                    })
+                                    void requestImmediateSave()
                                 }
                             }}>
                                 <TrashIcon size={18}/>
@@ -372,15 +377,21 @@
                         const option = await alertChatOptions()
                         switch(option){
                             case 0:{
+                                // Hydrate placeholder before copying to ensure full data
+                                if(chara.chats[i]?._placeholder){
+                                    await ensureChatHydrated(chara.chats, i, (chara as character).chaId)
+                                }
+                                if(chara.chats[i]?._placeholder){
+                                    alertError('Failed to load chat data.')
+                                    break
+                                }
                                 const newChat = $state.snapshot(chara.chats[i])
                                 newChat.name = createChatCopyName(newChat.name, 'Copy')
                                 newChat.id = v4()
                                 chara.chats.unshift(newChat)
                                 changeChatTo(0)
                                 chara.chats = chara.chats
-                                void requestImmediateSave({
-                                    skipBackups: true
-                                })
+                                void requestImmediateSave()
                                 break
                             }
                             case 1:{
@@ -445,9 +456,7 @@
                             let chats = chara.chats
                             chats.splice(i, 1)
                             chara.chats = chats
-                            void requestImmediateSave({
-                                skipBackups: true
-                            })
+                            void requestImmediateSave()
                         }
                     }}>
                         <TrashIcon size={18}/>
@@ -509,6 +518,9 @@
         </div>
 
         {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
+            {#if DBState.db.showPresetInSidebar}
+                <PresetBind />
+            {/if}
             {#if DBState.db.showModelInSidebar}
                 <div class="flex flex-col gap-1 mt-4">
                     <div class="text-[11px] text-textcolor2 px-1">{language.model} / {language.submodel}</div>

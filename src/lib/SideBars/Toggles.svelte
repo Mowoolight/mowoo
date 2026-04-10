@@ -106,6 +106,13 @@
 
 
     let groupedToggles = $derived.by(() => {
+        // Track chat/module changes so the toggle list re-derives on chat switch
+        const _char = DBState.db.characters[$selectedCharID]
+        void _char?.chats?.[_char?.chatPage]?.modules
+        void _char?.modules
+        void DBState.db.enabledModules
+        void DBState.db.moduleIntergration
+
         const ungrouped = parseToggleSyntax(DBState.db.customPromptTemplateToggle + getModuleToggles())
 
         let groupOpen = false
@@ -225,7 +232,7 @@
             </div>
         {/if}
         {@render toggles(groupedToggles, true)}
-        {#if chara && (DBState.db.supaModelType !== 'none' || DBState.db.hanuraiEnable || DBState.db.hypaV3)}
+        {#if chara && DBState.db.hypaV3}
             <div class="flex mt-2 items-center w-full" class:justify-end={$MobileGUI}>
                 <CheckInput
                     check={DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]?.supaMemory ?? chara.supaMemory ?? false}
@@ -235,7 +242,7 @@
                         if (!chat) return
                         chat.supaMemory = !(chat.supaMemory ?? char.supaMemory ?? false)
                     }}
-                    reverse name={DBState.db.hypaV3 ? language.ToggleHypaMemory : DBState.db.hanuraiEnable ? language.hanuraiMemory : DBState.db.hypaMemory ? language.ToggleHypaMemory : language.ToggleSuperMemory}/>
+                    reverse name={language.ToggleHypaMemory}/>
             </div>
         {/if}
     </div>
@@ -246,7 +253,7 @@
         </div>
     {/if}
     {@render toggles(groupedToggles)}
-    {#if DBState.db.supaModelType !== 'none' || DBState.db.hanuraiEnable || DBState.db.hypaV3}
+    {#if DBState.db.hypaV3}
         <div class="flex mt-2 items-center">
             <CheckInput
                 check={DBState.db.characters[$selectedCharID]?.chats?.[DBState.db.characters[$selectedCharID]?.chatPage]?.supaMemory ?? chara.supaMemory ?? false}
@@ -256,7 +263,7 @@
                     if (!chat) return
                     chat.supaMemory = !(chat.supaMemory ?? char.supaMemory ?? false)
                 }}
-                name={DBState.db.hypaV3 ? language.ToggleHypaMemory : DBState.db.hanuraiEnable ? language.hanuraiMemory : DBState.db.hypaMemory ? language.ToggleHypaMemory : language.ToggleSuperMemory}/>
+                name={language.ToggleHypaMemory}/>
         </div>
     {/if}
 {/if}
