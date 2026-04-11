@@ -403,7 +403,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"
-            class:prose-invert={$ColorSchemeTypeStore}
+            class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={() => {
             if(DBState.db.clickToEdit && idx > -1){
@@ -835,7 +835,7 @@
         }}>
             <TrashIcon size={20}/>
             {#if showNames}
-                <span class="ml-1">{language.deleteRerollMessage} ({currentPage}/{totalPages})</span>
+                <span class="ml-1">{language.deleteRerollMessage}</span>
             {/if}
         </button>
     {/if}
@@ -1072,6 +1072,53 @@
 {#if disabled === true}
 <div class="w-full border-t-2 border-dashed border-blue-500"></div>
 {/if}
+{#if DBState.db.theme === ''}
+<!-- NodeOnly Standard: 전용 외부 구조 -->
+<div class="flex max-w-full justify-center risu-chat"
+     data-chat-index={idx}
+     data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
+     style={isLastMemory ? `border-top:${DBState.db.memoryLimitThickness}px solid rgba(98, 114, 164, 0.7);` : ''}
+     onclickcapture={handleButtonTriggerWithin}>
+    <div class="text-textcolor grow max-w-full sm:px-4 py-4">
+        {#if !blankMessage}
+            <div class="flex flex-col w-full min-w-0 max-w-3xl mx-auto py-6 px-4 sm:px-8 bg-bgcolor sm:rounded-lg">
+                <!-- Header: icon + name -->
+                <div class="flex items-center gap-3 mb-4">
+                    {@render senderIcon({rounded: DBState.db.roundIcons})}
+                    {#if DBState.db.characters[selIdState.selId]?.chaId === "§playground" && DBState.db.characters[selIdState.selId]?.chats?.[DBState.db.characters[selIdState.selId]?.chatPage]?.message?.[idx]}
+                        <span class="text-lg sm:text-xl text-textcolor flex items-center">
+                            <span>{DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'Assistant' : 'User'}</span>
+                            <button class="ml-2 text-textcolor2 hover:text-textcolor" onclick={() => {
+                                DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx].role === 'char' ? 'user' : 'char'
+                                ReloadChatPointer.update((v) => {
+                                    v[idx] = (v[idx] ?? 0) + 1
+                                    return v
+                                })
+                            }}><ArrowLeftRightIcon size="18" /></button>
+                        </span>
+                    {:else if !$HideIconStore}
+                        <span class="text-lg sm:text-xl text-textcolor">{name}</span>
+                    {/if}
+                </div>
+                <!-- Body: message text -->
+                <div class="mb-3 leading-relaxed">
+                    {@render textBox()}
+                </div>
+                <!-- Footer: geninfo + buttons -->
+                <div class="flex flex-wrap items-center justify-between pt-2 border-t border-darkborderc border-opacity-30 text-textcolor2 gap-2">
+                    <div class="min-w-0">
+                        {@render genInfo()}
+                    </div>
+                    <div class="w-full sm:w-auto">
+                        {@render iconButtons()}
+                    </div>
+                </div>
+            </div>
+        {/if}
+    </div>
+</div>
+{:else}
+<!-- 기존 테마: 공유 외부 구조 -->
 <div class="flex max-w-full justify-center risu-chat"
      data-chat-index={idx}
      data-chat-id={DBState.db.characters?.[selIdState.selId]?.chats?.[DBState.db.characters?.[selIdState.selId]?.chatPage]?.message?.[idx]?.chatId ?? ''}
@@ -1185,6 +1232,7 @@
         {/if}
     </div>
 </div>
+{/if}
 
 {#if disabled}
 <div class={{
