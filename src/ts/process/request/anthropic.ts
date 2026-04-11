@@ -379,7 +379,7 @@ export async function requestClaude(arg:RequestDataArgumentExtended):Promise<req
         delete body.thinking
     }
 
-    if(systemPrompt === ''){
+    if(systemPrompt.trim() === ''){
         delete body.system
     }
 
