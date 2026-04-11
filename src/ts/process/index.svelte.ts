@@ -20,7 +20,6 @@ import { additionalInformations } from "./embedding/addinfo";
 import { getInlayAsset } from "./files/inlays";
 import { getGenerationModelString } from "./models/modelString";
 import { runInlayScreen } from "./inlayScreen";
-import { addRerolls } from "./prereroll";
 import { runImageEmbedding } from "./transformers";
 import { runLuaEditTrigger } from "./scriptings";
 import { getModelInfo, LLMFlags } from "../model/modellist";
@@ -1458,8 +1457,6 @@ export async function sendChat(chatProcessIndex = -1,arg:{
         if(streamAborted || abortSignal.aborted){
             return false
         }
-
-        addRerolls(generationId, Object.values(lastResponseChunk))
 
         DBState.db.characters[selectedChar].chats[selectedChat] = runCurrentChatFunction(DBState.db.characters[selectedChar].chats[selectedChat])
         currentChat = DBState.db.characters[selectedChar].chats[selectedChat]        
