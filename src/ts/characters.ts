@@ -1,8 +1,8 @@
 import { get, writable } from "svelte/store";
-import { saveImage, setDatabase, type character, type Chat, defaultSdDataFunc, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat } from "./storage/database.svelte";
+import { saveImage, setDatabase, type character, type Chat, defaultSdDataFunc, type loreBook, getDatabase, getCharacterByIndex, setCharacterByIndex, getCurrentChat, loadTogglesFromChat, normalizeChat } from "./storage/database.svelte";
 import { ensureChatHydrated } from "./storage/chatStorage";
 import { alertAddCharacter, alertConfirm, alertError, alertNormal, alertSelect, alertStore, alertWait } from "./alert";
-import { loadingOverlayStore } from "./stores.svelte";
+import { loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { language } from "../lang";
 import { checkNullish, findCharacterbyId, getUserName, selectMultipleFile, selectSingleFile } from "./util";
 import { v4 as uuidv4, v4 } from 'uuid';
@@ -436,7 +436,7 @@ export async function importChat(){
                     }
                     chat.id = v4()
                 })
-                db.characters[selectedID].chats.unshift(...chats)
+                db.characters[selectedID].chats.unshift(...chats.map(c => normalizeChat(c)))
                 setDatabase(db)
                 alertNormal(language.successImport)
                 return
@@ -452,7 +452,7 @@ export async function importChat(){
                             v.localLore = []
                         }
                         v.fmIndex ??= -1
-                        return v
+                        return normalizeChat(v)
                     })))
                     setDatabase(db)
                     alertNormal(language.successImport)
@@ -467,7 +467,7 @@ export async function importChat(){
                 if(!(checkNullish(das.message) || checkNullish(das.note) || checkNullish(das.name) || checkNullish(das.localLore))){
                     das.fmIndex ??= -1
                     das.id = v4()
-                    db.characters[selectedID].chats.unshift(das)
+                    db.characters[selectedID].chats.unshift(normalizeChat(das))
                     setDatabase(db)
                     alertNormal(language.successImport)
                     return
@@ -487,7 +487,7 @@ export async function importChat(){
             const chat = doc.querySelector('.idat').textContent
             const json = JSON.parse(chat)
             if(json.message && json.note && json.name && json.localLore){
-                db.characters[selectedID].chats.unshift(json)
+                db.characters[selectedID].chats.unshift(normalizeChat(json))
                 setDatabase(db)
                 alertNormal(language.successImport)
             }
@@ -776,6 +776,7 @@ export function changeChar(index: number, arg:{
       return
     }
     reseter();
+    chatDeselected.set(false)
     characterFormatUpdate(index, {
       updateInteraction: true,
     });
@@ -788,8 +789,14 @@ export function changeChar(index: number, arg:{
             const capturedIndex = index
             const capturedChatId = chat.id
             if(char){
-                loadingOverlayStore.set({ active: true, text: language.loading ?? '' })
+                let cancelled = false
+                loadingOverlayStore.set({ active: true, text: language.loading ?? '', onCancel: () => {
+                    cancelled = true
+                    chatDeselected.set(true)
+                    loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+                }})
                 void ensureChatHydrated(char.chats, char.chatPage, char.chaId).then((hydrated) => {
+                    if(cancelled) return
                     const currentChar = getDatabase().characters[capturedIndex]
                     const activeChatId = currentChar?.chats?.[currentChar.chatPage]?.id
                     if(hydrated && get(selectedCharID) === capturedIndex && activeChatId === capturedChatId) {
@@ -798,7 +805,7 @@ export function changeChar(index: number, arg:{
                 }).catch((e) => {
                     console.error('[selectCharacter] hydration failed:', e)
                 }).finally(() => {
-                    loadingOverlayStore.set({ active: false, text: '' })
+                    if(!cancelled) loadingOverlayStore.set({ active: false, text: '', onCancel: null })
                 })
             }
         } else {

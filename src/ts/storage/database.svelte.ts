@@ -638,6 +638,9 @@ export function setDatabase(data:Database){
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
     data.disableMobileDragDrop ??= false
+    data.disableToggleBinding ??= false
+    data.hideLoadout ??= true
+    data.hideEasyPanel ??= true
     data.hideAllImages ??= false
     data.ImagenModel ??= 'imagen-4.0-generate-001'
     data.ImagenImageSize ??= '1K'
@@ -667,9 +670,7 @@ export function setDatabase(data:Database){
     data.hamburgerButtonBottom ??= false
     data.dynamicModelRegistry ??= true
     data.saveSignatures ??= false
-    // If the user uses plugins, its probably better to enable RisuAI Pro Tools by default
-    // Because its likely they are power users who would benefit from the features
-    data.enableRisuaiProTools ??= data.plugins.length > 0
+    data.enableRisuaiProTools ??= false
     data.keepSessionAlive ??= 'off'
     data.localNetworkMode ??= false
     if (typeof data.localNetworkMode !== 'boolean') data.localNetworkMode = false
@@ -736,7 +737,7 @@ export function getCurrentChat(){
 
 export function setCurrentChat(chat:Chat){
     const char = getCurrentCharacter()
-    char.chats[char.chatPage] = chat
+    char.chats[char.chatPage] = normalizeChat(chat)
     setCurrentCharacter(char)
 }
 
@@ -847,12 +848,14 @@ export function applyToggleValues(values:Record<string, string>, db:Database = g
 }
 
 export function saveTogglesToChat():void{
+    if(getDatabase().disableToggleBinding) return
     const chat = getCurrentChat()
     if(!chat) return
     chat.savedToggleValues = snapshotToggleValues()
 }
 
 export function loadTogglesFromChat(chat:Chat):void{
+    if(getDatabase().disableToggleBinding) return
     if(!chat?.savedToggleValues) return
     applyToggleValues(chat.savedToggleValues)
 }
@@ -1188,6 +1191,9 @@ export interface Database{
     showPresetInSidebar:boolean
     showPersonaInSidebar:boolean
     disableMobileDragDrop:boolean
+    disableToggleBinding:boolean
+    hideLoadout:boolean
+    hideEasyPanel:boolean
     menuSideBar:boolean
     pluginV2: RisuPlugin[]
     showSavingIcon:boolean
@@ -1897,6 +1903,19 @@ interface ComfyConfig{
 
 export type FormatingOrderItem = 'main'|'jailbreak'|'chats'|'lorebook'|'globalNote'|'authorNote'|'lastChat'|'description'|'postEverything'|'personaPrompt'
 
+/**
+ * Ensure a Chat object has all required fields.
+ * Call at trust boundaries: after hydration, before assigning to character.chats, etc.
+ */
+export function normalizeChat(chat: Partial<Chat>): Chat {
+    const c = chat as Chat
+    if (!Array.isArray(c.message)) c.message = []
+    if (typeof c.note !== 'string') c.note = ''
+    if (typeof c.name !== 'string') c.name = ''
+    if (!Array.isArray(c.localLore)) c.localLore = []
+    return c
+}
+
 export interface Chat{
     message: Message[]
     note:string
@@ -1930,6 +1949,7 @@ export interface ChatStub {
     name: string
     lastDate?: number
     folderId?: string
+    modules?: string[]
     _stub: true
 }
 

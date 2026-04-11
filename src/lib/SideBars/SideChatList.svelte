@@ -2,12 +2,12 @@
     import { onDestroy, onMount } from "svelte";
     import { v4 } from "uuid";
     import Sortable from 'sortablejs/modular/sortable.core.esm.js';
-    import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, SplitIcon, FolderPlusIcon, BookmarkCheckIcon } from "@lucide/svelte";
+    import { DownloadIcon, PencilIcon, HardDriveUploadIcon, MenuIcon, TrashIcon, SplitIcon, FolderPlusIcon, BookmarkCheckIcon, PackageIcon } from "@lucide/svelte";
 
     import type { Chat, ChatFolder, character, groupChat } from "src/ts/storage/database.svelte";
     import { ensureChatHydrated } from "src/ts/storage/chatStorage";
     import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
-    import { selectedCharID } from "src/ts/stores.svelte";
+    import { selectedCharID, chatDeselected } from "src/ts/stores.svelte";
 
     import CheckInput from "../UI/GUI/CheckInput.svelte";
     import Button from "../UI/GUI/Button.svelte";
@@ -17,7 +17,7 @@
     import { alertChatOptions, alertConfirm, alertError, alertNormal, alertSelect, alertStore } from "src/ts/alert";
     import { findCharacterbyId, sleep, sortableOptions } from "src/ts/util";
 
-    import { bookmarkListOpen } from "src/ts/stores.svelte";
+    import { bookmarkListOpen, openModuleListStore } from "src/ts/stores.svelte";
     import { language } from "src/lang";
     import Toggles from "./Toggles.svelte";
     import PersonaBind from "./PersonaBind.svelte";
@@ -243,9 +243,13 @@
                     {@const chatIdx = chara.chats.indexOf(chat)}
                     <button data-risu-chat-idx={chatIdx} onclick={() => {
                         if(!editMode){
-                            changeChatTo(chatIdx)
+                            if(chatIdx === chara.chatPage && !$chatDeselected){
+                                $chatDeselected = true
+                            } else {
+                                changeChatTo(chatIdx)
+                            }
                         }
-                    }} class="risu-chats flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"class:bg-selected={chatIdx === chara.chatPage}>
+                    }} class="risu-chats flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"class:bg-selected={chatIdx === chara.chatPage && !$chatDeselected}>
                         {#if editMode}
                             <TextInput bind:value={chat.name} className="grow min-w-0" padding={false}/>
                         {:else}
@@ -358,11 +362,15 @@
             {#if chat.folderId == null}
             <button data-risu-chat-idx={i} onclick={() => {
                 if(!editMode){
-                    changeChatTo(i)
+                    if(i === chara.chatPage && !$chatDeselected){
+                        $chatDeselected = true
+                    } else {
+                        changeChatTo(i)
+                    }
                 }
             }}
             class="flex items-center text-textcolor border-solid border-0 border-darkborderc p-2 cursor-pointer rounded-md"
-            class:bg-selected={i === chara.chatPage}>
+            class:bg-selected={i === chara.chatPage && !$chatDeselected}>
                 {#if editMode}
                     <TextInput bind:value={chara.chats[i].name} className="grow min-w-0" padding={false}/>
                 {:else}
@@ -517,7 +525,7 @@
             </button>
         </div>
 
-        {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground'}
+        {#if DBState.db.characters[$selectedCharID]?.chaId !== '§playground' && !$chatDeselected}
             {#if DBState.db.showPresetInSidebar}
                 <PresetBind />
             {/if}
@@ -532,6 +540,16 @@
                 <PersonaBind />
             {/if}
             <Toggles bind:chara={chara} noContainer />
+            <button class="flex w-full items-center justify-center gap-1.5 py-2 px-4 mt-2 rounded-md border border-darkborderc bg-darkbutton hover:bg-selected text-textcolor text-md cursor-pointer transition-colors shadow-xs"
+                onclick={() => {
+                    const char = DBState.db.characters[$selectedCharID]
+                    if (!char) return
+                    char.chats[char.chatPage].modules ??= []
+                    openModuleListStore.set(true)
+                }}>
+                <PackageIcon size={16} class="shrink-0" />
+                <span class="truncate">{language.modules}</span>
+            </button>
         {/if}
     </div>
 </div>

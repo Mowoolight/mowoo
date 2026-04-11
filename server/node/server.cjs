@@ -117,6 +117,33 @@ function invalidateDbCache() {
 
 // ─── Chat runtime lazy load helpers ─────────────────────────────────────────
 
+function assignMissingChatIds(dbObj) {
+    let changed = false;
+    if (!dbObj?.characters) return changed;
+    for (const char of dbObj.characters) {
+        if (!char?.chats) continue;
+        for (const chat of char.chats) {
+            if (!chat || chat._stub || chat.id) continue;
+            chat.id = nodeCrypto.randomUUID();
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
+    const { createBackup = false } = options;
+    const dbObj = normalizeJSON(await decodeRisuSave(raw));
+    const hadMissingIds = assignMissingChatIds(dbObj);
+    if (hadMissingIds) {
+        kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(dbObj)));
+        if (createBackup) {
+            createBackupAndRotate();
+        }
+    }
+    return dbObj;
+}
+
 /**
  * Convert a full chat to a stub (metadata only).
  */
@@ -129,6 +156,7 @@ function chatToStub(chat) {
     };
     if (chat.lastDate != null) stub.lastDate = chat.lastDate;
     if (chat.folderId != null) stub.folderId = chat.folderId;
+    if (chat.modules != null) stub.modules = chat.modules;
     return stub;
 }
 
@@ -143,7 +171,10 @@ function initChatStore(dbObj) {
         if (!char?.chaId || !char.chats) continue;
         const charChats = new Map();
         for (const chat of char.chats) {
-            if (chat && chat.id && !chat._stub) {
+            if (chat && !chat._stub) {
+                if (!chat.id) {
+                    chat.id = nodeCrypto.randomUUID();
+                }
                 charChats.set(chat.id, chat);
             }
         }
@@ -185,6 +216,7 @@ function mergeChatStubWithFullChat(stub, fullChat) {
     };
     if (stub.lastDate != null) merged.lastDate = stub.lastDate;
     if (stub.folderId != null) merged.folderId = stub.folderId;
+    if (stub.modules != null) merged.modules = stub.modules;
     return merged;
 }
 
@@ -218,7 +250,9 @@ async function ensureChatStore() {
         fullChatStore = new Map();
         return;
     }
-    const dbObj = normalizeJSON(await decodeRisuSave(raw));
+    const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
+        createBackup: true,
+    });
     initChatStore(dbObj);
 }
 
@@ -2298,7 +2332,9 @@ app.get('/api/read', async (req, res, next) => {
             // Strip chat payloads from database.bin — client gets stubs only
             if (key === 'database/database.bin') {
                 try {
-                    const dbObj = await decodeRisuSave(value);
+                    const dbObj = await decodeDatabaseWithPersistentChatIds(value, {
+                        createBackup: true,
+                    });
                     initChatStore(dbObj);
                     const stripped = normalizeJSON(stripChatsFromDb(dbObj));
                     // Populate dbCache so patch endpoint uses the same data
@@ -3177,7 +3213,9 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 if (!restoreColdStorageChat(chat)) {
                     return res.status(500).json({ error: 'Cold storage restore failed' });
                 }
-                return res.json(chat);
+                const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
+                res.setHeader('Content-Type', 'application/octet-stream');
+                return res.send(encoded);
             }
         }
 
@@ -3199,7 +3237,9 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         if (!restoreColdStorageChat(chat)) {
             return res.status(500).json({ error: 'Cold storage restore failed' });
         }
-        res.json(chat);
+        const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.send(encoded);
     } catch (error) {
         next(error);
     }
@@ -3214,7 +3254,18 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
             const chaId = req.params.chaId;
             const chatIndex = parseInt(req.params.chatIndex, 10);
             const expectedChatId = req.headers['x-chat-id'];
-            const chatData = req.body;
+            let chatData;
+            if (Buffer.isBuffer(req.body)) {
+                // Binary msgpack body (application/octet-stream)
+                try {
+                    chatData = await decodeRisuSave(req.body);
+                } catch (e) {
+                    return res.status(400).json({ error: 'Invalid binary chat data' });
+                }
+            } else {
+                // JSON body (legacy)
+                chatData = req.body;
+            }
 
             if (!chatData || !expectedChatId) {
                 return res.status(400).json({ error: 'Chat data and x-chat-id required' });
