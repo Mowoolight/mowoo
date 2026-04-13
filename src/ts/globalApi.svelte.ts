@@ -426,7 +426,10 @@ export async function saveDb() {
         })
         $effect(() => {
             DBState.db.botPresetsId
-            DBState.db.botPresets.length
+            try { $state.snapshot(DBState.db.botPresets) } catch (e) {
+                console.warn('[Save] $state.snapshot(botPresets) failed:', e)
+                return
+            }
             if (!didInitBotPresetEffect) {
                 didInitBotPresetEffect = true
                 return
