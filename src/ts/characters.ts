@@ -20,7 +20,6 @@ import { PngChunk } from "./pngChunk";
 export function createNewCharacter() {
     let db = getDatabase()
     db.characters.push(createBlankChar())
-    setDatabase(db)
     checkCharOrder()
     return db.characters.length - 1
 }
@@ -103,7 +102,6 @@ export async function selectCharImg(charIndex:number) {
     const imgp = await saveImage(img)
     dumpCharImage(charIndex)
     db.characters[charIndex].image = imgp
-    setDatabase(db)
 }
 
 export function dumpCharImage(charIndex:number) {
@@ -121,7 +119,6 @@ export function dumpCharImage(charIndex:number) {
     })
     char.image = ''
     db.characters[charIndex] = char
-    setDatabase(db)
 }
 
 export function changeCharImage(charIndex:number,changeIndex:number) {
@@ -132,7 +129,6 @@ export function changeCharImage(charIndex:number,changeIndex:number) {
     dumpCharImage(charIndex)
     char.image = image
     db.characters[charIndex] = char
-    setDatabase(db)
 }
 
 
@@ -155,7 +151,6 @@ export async function addCharEmotion(charId:number) {
             dbChar.emotionImages.push([name,imgp])
             db.characters[charId] = dbChar
         }
-        setDatabase(db)
     }
     addingEmotion.set(false)
 }
@@ -167,7 +162,6 @@ export function rmCharEmotion(charId:number, emotionId:number) {
         dbChar.emotionImages.splice(emotionId, 1)
         db.characters[charId] = dbChar
     }
-    setDatabase(db)
 }
 
 
@@ -406,7 +400,6 @@ export async function importChat(){
 
             db.characters[selectedID].chats.unshift(newChat)
             changeChatTo(0)
-            setDatabase(db)
             alertNormal(language.successImport)
         }
         else if(dat.name.endsWith('json')){
@@ -437,7 +430,6 @@ export async function importChat(){
                     chat.id = v4()
                 })
                 db.characters[selectedID].chats.unshift(...chats.map(c => normalizeChat(c)))
-                setDatabase(db)
                 alertNormal(language.successImport)
                 return
             }
@@ -454,7 +446,6 @@ export async function importChat(){
                         v.fmIndex ??= -1
                         return normalizeChat(v)
                     })))
-                    setDatabase(db)
                     alertNormal(language.successImport)
                     return
                 } else {
@@ -468,7 +459,6 @@ export async function importChat(){
                     das.fmIndex ??= -1
                     das.id = v4()
                     db.characters[selectedID].chats.unshift(normalizeChat(das))
-                    setDatabase(db)
                     alertNormal(language.successImport)
                     return
                 }
@@ -488,7 +478,6 @@ export async function importChat(){
             const json = JSON.parse(chat)
             if(json.message && json.note && json.name && json.localLore){
                 db.characters[selectedID].chats.unshift(normalizeChat(json))
-                setDatabase(db)
                 alertNormal(language.successImport)
             }
             else{
@@ -724,7 +713,6 @@ export async function removeChar(index:number,name:string, type:'normal'|'perman
     checkCharOrder()
     db.characters = chars
     requiresFullEncoderReload.state = true
-    setDatabase(db)
     selectedCharID.set(-1)
 }
 

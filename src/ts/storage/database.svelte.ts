@@ -2301,7 +2301,6 @@ export function saveCurrentPreset(){
         pres[db.botPresetsId] = savedPreset
     }
     db.botPresets = pres
-    setDatabase(db)
 }
 
 export function copyPreset(id:number){
@@ -2311,7 +2310,6 @@ export function copyPreset(id:number){
     const newPres = safeStructuredClone(pres[id])
     newPres.name += " Copy"
     db.botPresets.push(newPres)
-    setDatabase(db)
 }
 
 export function changeToPreset(id =0, savecurrent = true){
@@ -2323,7 +2321,6 @@ export function changeToPreset(id =0, savecurrent = true){
     const newPres = pres[id]
     db.botPresetsId = id
     db = setPreset(db, newPres)
-    setDatabase(db)
     const chat = getCurrentChat()
     if(chat){
         loadTogglesFromChat(chat)
@@ -2515,7 +2512,6 @@ export function saveCurrentThemePreset(){
         pres[db.themePresetsId] = saved
     }
     db.themePresets = pres
-    setDatabase(db)
 }
 
 export function changeToThemePreset(id = 0, savecurrent = true){
@@ -2577,7 +2573,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.menuSideBar = p.menuSideBar ?? db.menuSideBar
     db.notification = p.notification ?? db.notification
     db.useChatSticker = p.useChatSticker ?? db.useChatSticker
-    setDatabase(db)
 }
 
 export function copyThemePreset(id: number){
@@ -2586,7 +2581,6 @@ export function copyThemePreset(id: number){
     const newPres = safeStructuredClone(db.themePresets[id])
     newPres.name += " Copy"
     db.themePresets.push(newPres)
-    setDatabase(db)
 }
 
 export async function downloadThemePreset(id: number, type: 'json'|'risutheme' = 'json'){
@@ -2644,7 +2638,6 @@ export async function importThemePreset(f: {
     let db = getDatabase()
     pre.name = pre.name ?? "Imported Theme"
     db.themePresets.push(pre)
-    setDatabase(db)
     alertNormal(language.successImport)
 }
 
@@ -2758,7 +2751,6 @@ export async function importPreset(f:{
         pr.NAISettings.mirostat_tau = pre.parameters.mirostat_tau
         pr.name = pre.name ?? "Imported"
         db.botPresets.push(pr)
-        setDatabase(db)
         return
     }
 
@@ -2864,7 +2856,6 @@ export async function importPreset(f:{
         }
         pr.name = "Imported ST Preset"
         db.botPresets.push(pr)
-        setDatabase(db)
         return
     }
     pre.name ??= "Imported"
@@ -2872,5 +2863,4 @@ export async function importPreset(f:{
         db.botPresets = []
     }
     db.botPresets.push(pre)
-    setDatabase(db)
 }

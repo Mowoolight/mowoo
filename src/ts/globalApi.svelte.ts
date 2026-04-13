@@ -1383,7 +1383,6 @@ export function checkCharOrder() {
     }
 
 
-    setDatabase(db)
 }
 
 /**
