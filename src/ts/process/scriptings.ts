@@ -631,7 +631,6 @@ export async function runScripted(code:string, arg:{
                     throw('Invalid data type')
                 }
                 db.characters[selectedChar].name = name
-                setDatabase(db)
             })
 
             declareAPI('getDescription', (id:string) => {
@@ -662,7 +661,6 @@ export async function runScripted(code:string, arg:{
                 }
                 char.desc = desc
                 db.characters[selectedChar] = char
-                setDatabase(db)
             })
 
             declareAPI('getCharacterFirstMessage', (id:string) => {
@@ -684,7 +682,6 @@ export async function runScripted(code:string, arg:{
                 }
                 char.firstMessage = data
                 db.characters[selectedChar] = char
-                setDatabase(db)
                 return true
             })
 
@@ -724,7 +721,6 @@ export async function runScripted(code:string, arg:{
                     return false
                 }
                 db.characters[selectedChar].backgroundHTML = data
-                setDatabase(db)
                 return true
             })
 

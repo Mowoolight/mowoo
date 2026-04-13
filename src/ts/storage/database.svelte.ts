@@ -12,6 +12,8 @@ import { defaultColorScheme, type ColorScheme } from '../gui/colorscheme';
 import type { PromptItem, PromptSettings } from '../process/prompt';
 import type { OobaChatCompletionRequestParams } from '../model/ooba';
 import { type HypaV3Settings, type HypaV3Preset, createHypaV3Preset } from '../process/memory/hypav3'
+import { normalizeTranslatorPresetState, type TranslatorPreset } from '../translator/presets'
+import { safeStructuredClone } from '../polyfill';
 
 //APP_VERSION_POINT is to locate the app version in the database file for version bumping
 export let appVer = "2026.2.291" //<APP_VERSION_POINT>
@@ -368,6 +370,12 @@ export function setDatabase(data:Database){
     data.ainconfig ??= safeStructuredClone(defaultAIN)
     data.openrouterKey ??= ''
     data.openrouterRequestModel ??= 'openai/gpt-3.5-turbo'
+    data.nanogptKey ??= ''
+    data.nanogptRequestModel ??= ''
+    data.nanogptRequestModelName ??= ''
+    data.nanogptProvider ??= ''
+    data.nanogptSubscriptionState ??= ''
+    data.nanogptUseSubscriptionEndpoint ??= false
     data.NAIsettings ??= safeStructuredClone(prebuiltNAIpresets)
     data.assetWidth ??= -1
     data.animationSpeed ??= 0.4
@@ -562,6 +570,7 @@ export function setDatabase(data:Database){
         }
     }
     data.hypaV3PresetId ??= 0
+    normalizeTranslatorPresetState(data)
     data.showDeprecatedTriggerV2 ??= false
     data.returnCSSError ??= true
     data.realmDirectOpen ??= false
@@ -620,7 +629,6 @@ export function setDatabase(data:Database){
     data.rememberToolUsage ??= true
     data.simplifiedToolUse ??= false
     data.streamGeminiThoughts ??= false
-    data.sourcemapTranslate ??= false
     data.settingsCloseButtonSize ??= 24
     data.showModelInSidebar ??= true
     data.showPresetInSidebar ??= true
@@ -1006,6 +1014,12 @@ export interface Database{
     openrouterRequestModel:string
     openrouterKey:string
     openrouterMiddleOut:boolean
+    nanogptKey:string
+    nanogptRequestModel:string
+    nanogptRequestModelName:string
+    nanogptProvider:string
+    nanogptSubscriptionState:string
+    nanogptUseSubscriptionEndpoint:boolean
     openrouterFallback:boolean
     selectedPersona:number
     personas:{
@@ -1057,6 +1071,8 @@ export interface Database{
     allowAllExtentionFiles?:boolean
     translatorPrompt:string
     translatorMaxResponse:number
+    translatorPresets: TranslatorPreset[]
+    translatorPresetId: number
     top_p: number,
     google: {
         accessToken: string
@@ -1293,7 +1309,6 @@ export interface Database{
         reference_image: string
         reference_base64image: string
     }
-    sourcemapTranslate:boolean
     settingsCloseButtonSize:number
     promptDiffPrefs:PromptDiffPrefs
     enableBookmark?: boolean
@@ -1508,6 +1523,8 @@ export interface character{
     prebuiltAssetStyle?:string
     prebuiltAssetExclude?:string[]
     modules?:string[]
+    coldstorage?:string
+    coldStoragedChats?:string[]
 }
 
 
@@ -1585,6 +1602,8 @@ export interface groupChat{
     prebuiltAssetStyle?:string
     prebuiltAssetExclude?:string[]
     modules?:string[]
+    coldstorage?:string
+    coldStoragedChats?:string[]
 }
 
 export interface botPreset{
@@ -2295,7 +2314,6 @@ export function saveCurrentPreset(){
         pres[db.botPresetsId] = savedPreset
     }
     db.botPresets = pres
-    setDatabase(db)
 }
 
 export function copyPreset(id:number){
@@ -2305,7 +2323,6 @@ export function copyPreset(id:number){
     const newPres = safeStructuredClone(pres[id])
     newPres.name += " Copy"
     db.botPresets.push(newPres)
-    setDatabase(db)
 }
 
 export function changeToPreset(id =0, savecurrent = true){
@@ -2317,7 +2334,6 @@ export function changeToPreset(id =0, savecurrent = true){
     const newPres = pres[id]
     db.botPresetsId = id
     db = setPreset(db, newPres)
-    setDatabase(db)
     const chat = getCurrentChat()
     if(chat){
         loadTogglesFromChat(chat)
@@ -2509,7 +2525,6 @@ export function saveCurrentThemePreset(){
         pres[db.themePresetsId] = saved
     }
     db.themePresets = pres
-    setDatabase(db)
 }
 
 export function changeToThemePreset(id = 0, savecurrent = true){
@@ -2571,7 +2586,6 @@ export function changeToThemePreset(id = 0, savecurrent = true){
     db.menuSideBar = p.menuSideBar ?? db.menuSideBar
     db.notification = p.notification ?? db.notification
     db.useChatSticker = p.useChatSticker ?? db.useChatSticker
-    setDatabase(db)
 }
 
 export function copyThemePreset(id: number){
@@ -2580,7 +2594,6 @@ export function copyThemePreset(id: number){
     const newPres = safeStructuredClone(db.themePresets[id])
     newPres.name += " Copy"
     db.themePresets.push(newPres)
-    setDatabase(db)
 }
 
 export async function downloadThemePreset(id: number, type: 'json'|'risutheme' = 'json'){
@@ -2638,7 +2651,6 @@ export async function importThemePreset(f: {
     let db = getDatabase()
     pre.name = pre.name ?? "Imported Theme"
     db.themePresets.push(pre)
-    setDatabase(db)
     alertNormal(language.successImport)
 }
 
@@ -2752,7 +2764,6 @@ export async function importPreset(f:{
         pr.NAISettings.mirostat_tau = pre.parameters.mirostat_tau
         pr.name = pre.name ?? "Imported"
         db.botPresets.push(pr)
-        setDatabase(db)
         return
     }
 
@@ -2858,7 +2869,6 @@ export async function importPreset(f:{
         }
         pr.name = "Imported ST Preset"
         db.botPresets.push(pr)
-        setDatabase(db)
         return
     }
     pre.name ??= "Imported"
@@ -2866,5 +2876,4 @@ export async function importPreset(f:{
         db.botPresets = []
     }
     db.botPresets.push(pre)
-    setDatabase(db)
 }

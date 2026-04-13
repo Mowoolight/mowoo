@@ -417,7 +417,6 @@ export async function characterURLImport() {
             }
         }
         db.modules.push(importData)
-        setDatabase(db)
         alertNormal(language.successImport)
         SettingsMenuIndex.set(14)
         settingsOpen.set(true)
@@ -455,7 +454,6 @@ export async function characterURLImport() {
         md.id = v4()
         const db = getDatabase()
         db.modules.push(md)
-        setDatabase(db)
         alertNormal(language.successImport)
         SettingsMenuIndex.set(14)
         settingsOpen.set(true)
@@ -513,7 +511,6 @@ export async function characterURLImport() {
             md.id = v4()
             const db = getDatabase()
             db.modules.push(md)
-            setDatabase(db)
             alertNormal(language.successImport)
             SettingsMenuIndex.set(14)
             settingsOpen.set(true)
@@ -946,7 +943,6 @@ async function importCharacterCardSpec(card:CharacterCardV2Risu|CharacterCardV3,
     db.characters.push(char)
     
 
-    setDatabase(db)
 
     alertNormal(language.importedCharacter)
     return true
