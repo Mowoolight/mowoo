@@ -27,8 +27,8 @@ const VOYAGE_MODEL = "voyage-context-3";
 const MAX_CHUNKS_PER_REQUEST = 16000;
 const MAX_INPUTS_PER_REQUEST = 1000;
 // voyage-context-3 API limit: 120,000 tokens per batch.
-// Estimate conservatively: ~2 chars per token (accounts for CJK/multilingual text).
-const MAX_CHARS_PER_BATCH = 100000 * 2;
+// CJK text averages ~1 char per token; use 1.5 chars/token as a safe estimate.
+const MAX_CHARS_PER_BATCH = 80000 * 1.5;
 
 class VoyageContext3Provider implements ContextualEmbeddingProvider {
   readonly modelId = VOYAGE_MODEL;
