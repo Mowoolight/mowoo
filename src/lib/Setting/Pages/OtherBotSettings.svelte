@@ -1230,7 +1230,6 @@
             <OptionInput value="voyageContext3">Voyage Context 3</OptionInput>
             <OptionInput value="perplexityContext">Perplexity Context Embedding</OptionInput>
             <OptionInput value="custom">Custom (OpenAI-compatible)</OptionInput>
-            <OptionInput value="voyageContext3">Voyage Context 3</OptionInput>
         </SelectInput>
 
         {#if DBState.db.hypaModel === 'openai3small' || DBState.db.hypaModel === 'openai3large' || DBState.db.hypaModel === 'ada'}

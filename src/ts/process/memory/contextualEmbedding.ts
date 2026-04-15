@@ -26,6 +26,9 @@ const VOYAGE_API_URL = "https://api.voyageai.com/v1/contextualizedembeddings";
 const VOYAGE_MODEL = "voyage-context-3";
 const MAX_CHUNKS_PER_REQUEST = 16000;
 const MAX_INPUTS_PER_REQUEST = 1000;
+// voyage-context-3 API limit: 120,000 tokens per batch.
+// Estimate conservatively: ~2 chars per token (accounts for CJK/multilingual text).
+const MAX_CHARS_PER_BATCH = 100000 * 2;
 
 class VoyageContext3Provider implements ContextualEmbeddingProvider {
   readonly modelId = VOYAGE_MODEL;
@@ -109,19 +112,24 @@ class VoyageContext3Provider implements ContextualEmbeddingProvider {
     const batches: string[][][] = [];
     let currentBatch: string[][] = [];
     let currentChunkCount = 0;
+    let currentCharCount = 0;
 
     for (const group of groups) {
+      const groupChars = group.reduce((sum, s) => sum + s.length, 0);
       if (
         currentBatch.length > 0 &&
         (currentBatch.length + 1 > MAX_INPUTS_PER_REQUEST ||
-         currentChunkCount + group.length > MAX_CHUNKS_PER_REQUEST)
+         currentChunkCount + group.length > MAX_CHUNKS_PER_REQUEST ||
+         currentCharCount + groupChars > MAX_CHARS_PER_BATCH)
       ) {
         batches.push(currentBatch);
         currentBatch = [];
         currentChunkCount = 0;
+        currentCharCount = 0;
       }
       currentBatch.push(group);
       currentChunkCount += group.length;
+      currentCharCount += groupChars;
     }
 
     if (currentBatch.length > 0) {
