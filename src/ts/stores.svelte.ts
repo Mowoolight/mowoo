@@ -45,6 +45,10 @@ export const MobileGUI = writable(false)
 export const MobileGUIStack = writable(0)
 export const MobileSideBar = writable(0)
 export const SettingsMenuIndex = writable(-1)
+// Sub-tab index inside the System settings page (0 = Dashboard, 1 = Backups,
+// 2 = System Logs). Exposed as a store so other pages can deep-link via
+// SettingsMenuIndex.set(23) + SystemSubmenuIndex.set(N).
+export const SystemSubmenuIndex = writable(0)
 export const ReloadGUIPointer = writable(0)
 export const ReloadChatPointer = writable({} as Record<number, number>)
 export const ScrollToMessageStore = $state({ value: -1 })

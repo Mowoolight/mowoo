@@ -392,10 +392,26 @@ if(!existsSync(savePath)){
     mkdirSync(savePath)
 }
 
-// Server-side backup directory (outside save/ to avoid bloating updater copies)
-const backupsDir = path.join(process.cwd(), "backups")
+// Server-side backup directory (outside save/ to avoid bloating updater copies).
+// Configurable at runtime via the kv key `config/server-backup-path`. When the
+// user changes the path the old directory is left in place (existing backups
+// stay where they were); only future backups land at the new path.
+const DEFAULT_BACKUPS_DIR = path.join(process.cwd(), "backups");
+const BACKUP_PATH_CONFIG_KEY = 'config/server-backup-path';
+
+function readBackupsDirConfig() {
+    try {
+        const raw = kvGet(BACKUP_PATH_CONFIG_KEY);
+        if (!raw) return DEFAULT_BACKUPS_DIR;
+        const text = Buffer.from(raw).toString('utf-8').trim();
+        return text || DEFAULT_BACKUPS_DIR;
+    } catch { return DEFAULT_BACKUPS_DIR; }
+}
+
+let backupsDir = readBackupsDirConfig();
 if(!existsSync(backupsDir)){
-    mkdirSync(backupsDir)
+    try { mkdirSync(backupsDir, { recursive: true }); }
+    catch { backupsDir = DEFAULT_BACKUPS_DIR; mkdirSync(backupsDir, { recursive: true }); }
 }
 const BACKUP_FILENAME_REGEX = /^risu-backup-\d+\.bin$/;
 
@@ -4530,6 +4546,67 @@ app.post('/api/db/optimize', async (req, res, next) => {
             };
         });
         res.json(result);
+    } catch (err) { next(err); }
+});
+
+// ── Snapshot list (database/dbbackup-* keys) ─────────────────────────────────
+
+app.get('/api/db/snapshots', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        const items = kvListWithSizes(DB_BACKUP_PREFIX);
+        const out = items.map((it) => {
+            const tsRaw = parseInt(it.key.slice(DB_BACKUP_PREFIX.length, -4), 10);
+            const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
+            return { key: it.key, size: it.size, timestamp: ts };
+        }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+        res.json({ snapshots: out });
+    } catch (err) { next(err); }
+});
+
+// ── Backup directory configuration ──────────────────────────────────────────
+
+app.get('/api/backup/server/path', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    try {
+        res.json({
+            path: backupsDir,
+            default: DEFAULT_BACKUPS_DIR,
+            isDefault: backupsDir === DEFAULT_BACKUPS_DIR,
+        });
+    } catch (err) { next(err); }
+});
+
+app.put('/api/backup/server/path', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    try {
+        const next = typeof req.body?.path === 'string' ? req.body.path.trim() : '';
+        if (!next) {
+            return res.status(400).json({ error: 'Path required' });
+        }
+        const resolved = path.resolve(next);
+        // Ensure parent exists / target is writable. Create the dir if missing.
+        try {
+            if (!existsSync(resolved)) {
+                mkdirSync(resolved, { recursive: true });
+            }
+            // Probe writability with a tmpfile.
+            const probe = path.join(resolved, `.risu-write-probe-${Date.now()}`);
+            require('fs').writeFileSync(probe, '');
+            require('fs').unlinkSync(probe);
+        } catch (e) {
+            return res.status(400).json({ error: 'Path is not writable: ' + (e?.message || String(e)) });
+        }
+        const previous = backupsDir;
+        backupsDir = resolved;
+        kvSet(BACKUP_PATH_CONFIG_KEY, Buffer.from(resolved, 'utf-8'));
+        res.json({
+            path: backupsDir,
+            previous,
+            default: DEFAULT_BACKUPS_DIR,
+            isDefault: backupsDir === DEFAULT_BACKUPS_DIR,
+        });
     } catch (err) { next(err); }
 });
 

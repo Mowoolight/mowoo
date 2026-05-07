@@ -20,6 +20,7 @@
     } from '@lucide/svelte'
     import { alertConfirm, alertMd, notifyError, notifySuccess } from 'src/ts/alert'
     import { forageStorage } from 'src/ts/globalApi.svelte'
+    import { SystemSubmenuIndex } from 'src/ts/stores.svelte'
     import { language, getCurrentLocale } from 'src/lang'
 
     // ── Types ────────────────────────────────────────────────────────────────
@@ -647,14 +648,18 @@
         {/if}
     </div>
 
-    <!-- ⑥ Backups ───────────────────────────────────────────────────────── -->
+    <!-- ⑥ Backups ─ summary only; full management lives in the Backups tab ─ -->
     <div class="border border-darkborderc bg-darkbg/40 rounded-md p-4 mb-4">
-        <div class="flex items-center gap-2 text-textcolor mb-3">
-            <ArchiveIcon size={16} />
-            <span class="font-medium">{language.storageBackups}</span>
+        <div class="flex items-center justify-between gap-2 mb-3">
+            <div class="flex items-center gap-2 text-textcolor">
+                <ArchiveIcon size={16} />
+                <span class="font-medium">{language.storageBackups}</span>
+            </div>
+            <ShButton variant="outline" size="sm" onclick={() => $SystemSubmenuIndex = 1}>
+                {language.storageBackupsManage}
+            </ShButton>
         </div>
 
-        <!-- Auto snapshot (DB-only, in-process) -->
         <div class="flex flex-col gap-1 mb-4">
             <div class="flex items-baseline justify-between gap-2">
                 <div class="flex items-center gap-2 text-textcolor">
@@ -673,8 +678,7 @@
             {/if}
         </div>
 
-        <!-- Manual full backup (file on disk) -->
-        <div class="flex flex-col gap-1 mb-4 pt-4 border-t border-darkborderc/50">
+        <div class="flex flex-col gap-1 pt-4 border-t border-darkborderc/50">
             <div class="flex items-baseline justify-between gap-2">
                 <div class="flex items-center gap-2 text-textcolor">
                     <SaveIcon size={14} />
@@ -690,12 +694,6 @@
                     {language.storageBackupsRange(fmtDateShort(stats.backups.file.oldest), fmtDateShort(stats.backups.file.newest))}
                 </div>
             {/if}
-        </div>
-
-        <!-- Local-download note -->
-        <div class="pt-3 border-t border-darkborderc/50 flex items-start gap-2 text-textcolor2 text-sm">
-            <InfoIcon size={14} class="shrink-0 mt-0.5 opacity-70" />
-            <span class="leading-relaxed opacity-70">{language.storageBackupsLocalNote}</span>
         </div>
     </div>
 

@@ -1686,14 +1686,14 @@ export const languageEnglish = {
     storageCleanup: "Clean up SQLite overhead",
 
     storageBackups: "Backups",
-    storageBackupsAuto: "Auto backup (DB only)",
+    storageBackupsManage: "Manage backups",
+    storageBackupsAuto: "Snapshot (DB only)",
     storageBackupsAutoDesc: "Periodic automatic snapshots for quick recovery. Stored inside risuai.db and rotated to fit ~500 MB. Character assets and inlay images are not included.",
-    storageBackupsManual: "Manual backup (full)",
+    storageBackupsManual: "Backup (full)",
     storageBackupsManualDesc: "Full backups you save explicitly. Includes character assets, inlay images, and cold storage. Stored as separate files under the backups/ folder (no auto-rotation).",
     storageBackupsCount: (count: number, size: number) =>
         `${count} · ${(size / 1024 / 1024).toFixed(1)} MB`,
     storageBackupsRange: (oldest: string, newest: string) => `Latest ${newest} · oldest ${oldest}`,
-    storageBackupsLocalNote: "Local-download backups are saved to your device and don't appear here. Use \"Account & Files\" settings to create or restore them.",
     storageBackupsEmpty: "None",
 
     storageCharacters: "Per-character usage",
@@ -1723,6 +1723,40 @@ export const languageEnglish = {
     storageModulesEmpty: "No modules",
 
     storageDebug: "Debug info",
+
+    // Data migration (formerly "Account & Files")
+    migration: "Data Migration",
+    migrationDesc: "Move data between RisuAI (or compatible systems) and NodeOnly: import from upstream, or export to upstream-compatible format.",
+    migrationInfoBackupMoved: "Server backups, local backups, and DB snapshots have moved to [System → Backups].",
+    migrationGotoBackupTab: "Open Backups tab",
+    migrationLegacyAccordion: "Legacy backup options (RisuAI-style)",
+
+    // System → Backups tab
+    systemBackups: "Backups",
+    backupTabDesc: "Manage snapshots, full backups, and local backups in one place.",
+
+    backupSnapshot: "Snapshot (DB only)",
+    backupSnapshotEmpty: "No snapshots.",
+    backupSnapshotRestore: "Restore from this snapshot",
+
+    backupServer: "Backup (full)",
+    backupServerCreate: "Create backup",
+    backupServerEmpty: "No backups saved.",
+
+    backupServerPath: "Stored at",
+    backupServerPathDefault: "Default location",
+    backupServerPathChange: "Change",
+    backupServerPathDialog: "Change backup location",
+    backupServerPathDialogDesc: "Absolute path to the folder where new backups will be saved. Existing backup files remain at the old location — move them manually if needed.",
+    backupServerPathInputLabel: "Absolute path",
+    backupServerPathSuccess: "Backup location updated.",
+    backupServerPathFailed: "Failed to update backup location",
+
+    backupLocal: "Local backup",
+    backupLocalDesc: "Download a backup to your device or restore from a file on your device.",
+    backupLocalDownload: "Download backup to device",
+    backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",
+    backupLocalRestoreDesc: "Restore from a backup file on your device.",
 
 } satisfies I18nTranslation;
 

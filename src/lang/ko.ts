@@ -1647,14 +1647,14 @@ export const languageKorean = {
     storageCleanup: "SQLite 오버헤드 정리",
 
     storageBackups: "백업",
-    storageBackupsAuto: "자동 백업 (DB만)",
+    storageBackupsManage: "백업 관리",
+    storageBackupsAuto: "스냅샷 (DB만)",
     storageBackupsAutoDesc: "주기적으로 자동 생성되는 빠른 복구용 스냅샷입니다. risuai.db 안에 저장되며 약 500 MB 한도로 자동 회전합니다. 캐릭터 에셋과 inlay는 포함되지 않습니다.",
-    storageBackupsManual: "수동 백업 (전체)",
+    storageBackupsManual: "백업 (전체)",
     storageBackupsManualDesc: "직접 저장하는 풀 백업입니다. 캐릭터 에셋·inlay·콜드 스토리지까지 모두 포함되며 backups/ 폴더에 별도 파일로 보관됩니다 (자동 회전 없음).",
     storageBackupsCount: (count: number, size: number) =>
         `${count}개 · ${(size / 1024 / 1024).toFixed(1)} MB`,
     storageBackupsRange: (oldest: string, newest: string) => `최신 ${newest} · 가장 오래된 것 ${oldest}`,
-    storageBackupsLocalNote: "로컬 다운로드 백업은 사용자 기기에 저장되어 여기에 표시되지 않습니다. \"계정 및 파일\" 설정에서 생성하거나 복원할 수 있습니다.",
     storageBackupsEmpty: "없음",
 
     storageCharacters: "캐릭터별 점유",
@@ -1684,5 +1684,39 @@ export const languageKorean = {
     storageModulesEmpty: "모듈 없음",
 
     storageDebug: "디버그 정보",
+
+    // 데이터 이전 (구 "계정 & 파일")
+    migration: "데이터 이전",
+    migrationDesc: "원본 RisuAI(또는 호환 시스템)에서 데이터를 가져오거나 NodeOnly 데이터를 원본 호환 형식으로 내보냅니다.",
+    migrationInfoBackupMoved: "서버 백업, 로컬 백업, 자동 스냅샷 관리는 [시스템 → 백업] 탭으로 이동했습니다.",
+    migrationGotoBackupTab: "백업 탭 열기",
+    migrationLegacyAccordion: "기존 리스 방식으로 백업 (레거시)",
+
+    // 시스템 → 백업 탭
+    systemBackups: "백업",
+    backupTabDesc: "스냅샷, 백업, 로컬 백업을 한곳에서 관리합니다.",
+
+    backupSnapshot: "스냅샷 (DB만)",
+    backupSnapshotEmpty: "스냅샷이 없습니다.",
+    backupSnapshotRestore: "이 스냅샷으로 복원",
+
+    backupServer: "백업 (전체)",
+    backupServerCreate: "백업 만들기",
+    backupServerEmpty: "저장된 백업이 없습니다.",
+
+    backupServerPath: "보관 위치",
+    backupServerPathDefault: "기본 위치",
+    backupServerPathChange: "변경",
+    backupServerPathDialog: "백업 보관 위치 변경",
+    backupServerPathDialogDesc: "새 백업이 저장될 폴더의 절대 경로를 입력하세요. 기존 백업 파일은 이전 위치에 그대로 남으며 자동으로 옮겨지지 않으므로, 필요하면 직접 옮겨주세요.",
+    backupServerPathInputLabel: "절대 경로",
+    backupServerPathSuccess: "보관 위치가 변경되었습니다.",
+    backupServerPathFailed: "보관 위치 변경 실패",
+
+    backupLocal: "로컬 백업",
+    backupLocalDesc: "사용자 기기로 백업을 다운로드하거나 기기 파일에서 복원합니다.",
+    backupLocalDownload: "로컬 백업 다운로드",
+    backupLocalDownloadDesc: "현재 데이터로 새 백업을 만들어 사용자 기기로 즉시 다운로드합니다.",
+    backupLocalRestoreDesc: "사용자 기기의 백업 파일에서 복원합니다.",
 
 } satisfies DeepPartial<typeof import('./en').languageEnglish>
