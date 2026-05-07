@@ -1,4 +1,4 @@
-import { type HypaModel, localModels, getPersistedHypaVector, setPersistedHypaVector, contextHash } from "./hypamemory";
+import { type HypaModel, localModels, setPersistedHypaVector, bulkGetPersistedHypaVectors, contextHash } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter, TaskCanceledError } from "./taskRateLimiter";
 import { runEmbedding } from "../transformers";
@@ -127,23 +127,36 @@ export class HypaProcessorV2<TMetadata> {
     }
 
     // Load cache
-    const loadPromises = ebdTexts.map(async (item, index) => {
-      const { id, content, metadata } = item;
-
-      // Use if already in memory
-      if (this.vectors.has(id)) {
-        resultMap.set(id, this.vectors.get(id));
-        return;
+    // First pass: separate items already in memory from those needing persistent storage lookup
+    const needsCacheLookup: EmbeddingText<TMetadata>[] = [];
+    for (const item of ebdTexts) {
+      if (this.vectors.has(item.id)) {
+        resultMap.set(item.id, this.vectors.get(item.id));
+      } else {
+        needsCacheLookup.push(item);
       }
+    }
 
-      try {
-        const cached = await getPersistedHypaVector(this.getCacheKey(content, ctxGroups.get(id))) as EmbeddingResult<TMetadata> | undefined;
+    if (needsCacheLookup.length > 0) {
+      // Build cache keys for all items needing lookup
+      const cacheKeys = needsCacheLookup.map(item =>
+        this.getCacheKey(item.content, ctxGroups.get(item.id))
+      );
+
+      // Single bulk request instead of hundreds of individual HTTP requests
+      const cachedVectors = await bulkGetPersistedHypaVectors(cacheKeys);
+
+      for (let i = 0; i < needsCacheLookup.length; i++) {
+        const item = needsCacheLookup[i];
+        const { id, metadata } = item;
+        const cacheKey = cacheKeys[i];
+        const cached = cachedVectors.get(cacheKey) as EmbeddingResult<TMetadata> | undefined;
 
         if (cached) {
           // Debug log for cache hit
           console.debug(
             HypaProcessorV2.LOG_PREFIX,
-            `Cache hit for getting embedding ${index} with model ${this.options.model}`
+            `Cache hit for getting embedding ${i} with model ${this.options.model}`
           );
 
           // Add metadata
@@ -158,12 +171,8 @@ export class HypaProcessorV2<TMetadata> {
         } else {
           toEmbed.push(item);
         }
-      } catch (error) {
-        toEmbed.push(item);
       }
-    });
-
-    await Promise.all(loadPromises);
+    }
 
     if (ctxProvider && toEmbed.length > 0 && saveToMemory) {
       const missMetadatas = new Set(

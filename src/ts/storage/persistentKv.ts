@@ -58,6 +58,27 @@ export async function clearPersistentPrefix(prefix: string): Promise<void> {
     await Promise.all(keys.map((key) => removePersistentKey(key)));
 }
 
+export async function bulkReadPersistentJson<T>(storageKeys: string[]): Promise<Map<string, T | null>> {
+    if (storageKeys.length === 0) {
+        return new Map();
+    }
+    await ensureStorageReady();
+    const items = await forageStorage.getItems(storageKeys);
+    const result = new Map<string, T | null>();
+    for (const { key, value } of items) {
+        if (!value || value.length === 0) {
+            result.set(key, null);
+        } else {
+            try {
+                result.set(key, JSON.parse(decoder.decode(value)) as T);
+            } catch {
+                result.set(key, null);
+            }
+        }
+    }
+    return result;
+}
+
 export async function makeHashedStorageKey(prefix: string, rawKey: string): Promise<string> {
     const hash = await hasher(encoder.encode(rawKey));
     return `${prefix}${hash}.json`;

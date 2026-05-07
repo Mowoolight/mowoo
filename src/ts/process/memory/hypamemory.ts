@@ -2,7 +2,7 @@ import { globalFetch } from "src/ts/globalApi.svelte";
 import { runEmbedding } from "../transformers";
 import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
-import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
+import { makeHashedStorageKey, readPersistentJson, writePersistentJson, bulkReadPersistentJson } from "src/ts/storage/persistentKv";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 
 export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'
@@ -63,6 +63,47 @@ export async function setPersistedHypaVector(cacheKey: string, value: memoryVect
         key: cacheKey,
         value: normalizedValue
     })
+}
+
+export async function bulkGetPersistedHypaVectors(cacheKeys: string[]): Promise<Map<string, memoryVector>> {
+    const result = new Map<string, memoryVector>();
+    const missingCacheKeys: string[] = [];
+
+    for (const cacheKey of cacheKeys) {
+        if (hypaVectorCache.has(cacheKey)) {
+            result.set(cacheKey, hypaVectorCache.get(cacheKey));
+        } else {
+            missingCacheKeys.push(cacheKey);
+        }
+    }
+
+    if (missingCacheKeys.length === 0) {
+        return result;
+    }
+
+    // Compute all storage keys in parallel (hashing only, no HTTP)
+    const storageKeys = await Promise.all(
+        missingCacheKeys.map(cacheKey => makeHashedStorageKey(hypaVectorCachePrefix, cacheKey))
+    );
+
+    const storageKeyToCacheKey = new Map<string, string>();
+    for (let i = 0; i < missingCacheKeys.length; i++) {
+        storageKeyToCacheKey.set(storageKeys[i], missingCacheKeys[i]);
+    }
+
+    // Single bulk HTTP request instead of hundreds of individual requests
+    const payloads = await bulkReadPersistentJson<{ key: string, value: memoryVector }>(storageKeys);
+
+    for (const [storageKey, payload] of payloads) {
+        const cacheKey = storageKeyToCacheKey.get(storageKey);
+        if (!cacheKey) continue;
+        if (payload && payload.key === cacheKey) {
+            hypaVectorCache.set(cacheKey, payload.value);
+            result.set(cacheKey, payload.value);
+        }
+    }
+
+    return result;
 }
 
 export class HypaProcesser{
