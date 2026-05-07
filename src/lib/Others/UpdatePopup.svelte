@@ -1,44 +1,115 @@
 <script lang="ts">
-    import { updatePopupStore, dismissUpdatePopup, type UpdateInfo } from "src/ts/update";
+    import { updatePopupStore, dismissUpdatePopup, selfUpdateProgressStore, executeSelfUpdate, type UpdateInfo, type SelfUpdateProgress } from "src/ts/update";
     import { openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
-    import { X, ArrowUpCircle, AlertTriangle } from "@lucide/svelte";
+    import { ArrowUpCircle, AlertTriangle, Download, Loader, CheckCircle, XCircle } from "@lucide/svelte";
+    import ShDialog from "src/lib/UI/GUI/ShDialog.svelte";
+    import ShButton from "src/lib/UI/GUI/ShButton.svelte";
 
     const info: UpdateInfo | null = $derived($updatePopupStore);
+    const progress: SelfUpdateProgress | null = $derived($selfUpdateProgressStore);
+
+    /** True while a self-update is running (or just finished/failed) */
+    const isUpdating = $derived(progress != null);
+
+    /** Closable iff idle, or the update reached its terminal state. */
+    const canClose = $derived(!isUpdating || progress?.step === 'done' || progress?.step === 'error');
 
     function getTitle(severity: string): string {
         if (severity === 'required') return language.updatePopupTitleRequired
         if (severity === 'outdated') return language.updatePopupTitleOutdated
         return language.updatePopupTitle
     }
+
+    function handleSelfUpdate() {
+        executeSelfUpdate()
+    }
+
+    function handleDone() {
+        const isDone = progress?.step === 'done'
+        selfUpdateProgressStore.set(null)
+        dismissUpdatePopup()
+        if (isDone) {
+            location.reload()
+        }
+    }
+
+    /** ShDialog.onOpenChange close path — routes through handleDone when an
+     *  update has finished (so reload fires) and through dismiss otherwise. */
+    function handleClose() {
+        if (isUpdating) handleDone()
+        else dismissUpdatePopup()
+    }
 </script>
 
+<!--
+    tier="base" so any alertError / alertConfirm fired during the update
+    surfaces above this popup. closeOnOutsideClick stays false because
+    showUpdatePopupOnce() persists the dismiss before render — accidental
+    backdrop clicks would silently drop the version forever. ESC stays
+    blocked per branch convention.
+-->
 {#if info}
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-    <div class="bg-darkbg border border-selected rounded-xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden">
-        <!-- Header -->
-        <div class="px-5 pt-5 pb-3 flex items-start justify-between">
-            <div class="flex items-center gap-2.5">
-                {#if info.severity === 'optional'}
-                    <div class="p-2 rounded-full bg-green-900/30">
-                        <ArrowUpCircle size={20} class="text-green-400" />
-                    </div>
+    <ShDialog
+        open={true}
+        onOpenChange={(v) => { if (!v) handleClose() }}
+        closable={canClose}
+        closeOnEscape={false}
+        closeOnOutsideClick={false}
+        tier="base"
+        size="sm"
+        footer={canClose ? footerActions : undefined}
+    >
+        {#snippet title()}
+            <span class="inline-flex items-center gap-2.5">
+                {#if isUpdating}
+                    {#if progress?.step === 'error'}
+                        <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
+                            <XCircle size={20} class="text-red-400" />
+                        </span>
+                    {:else if progress?.step === 'done'}
+                        <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
+                            <CheckCircle size={20} class="text-success" />
+                        </span>
+                    {:else}
+                        <span class="p-2 rounded-full bg-borderc/20" aria-hidden="true">
+                            <Loader size={20} class="text-borderc animate-spin" />
+                        </span>
+                    {/if}
+                {:else if info.severity === 'optional'}
+                    <span class="p-2 rounded-full bg-success/20" aria-hidden="true">
+                        <ArrowUpCircle size={20} class="text-success" />
+                    </span>
                 {:else}
-                    <div class="p-2 rounded-full bg-red-900/30">
+                    <span class="p-2 rounded-full bg-draculared/20" aria-hidden="true">
                         <AlertTriangle size={20} class="text-red-400" />
-                    </div>
+                    </span>
                 {/if}
-                <h2 class="text-base font-semibold text-textcolor">
-                    {getTitle(info.severity)}
-                </h2>
-            </div>
-            <button class="text-textcolor2 hover:text-textcolor p-1 -mr-1 -mt-1" onclick={dismissUpdatePopup}>
-                <X size={18} />
-            </button>
-        </div>
+                <span>
+                    {#if isUpdating}
+                        {progress?.step === 'done' ? language.selfUpdateDone
+                            : progress?.step === 'error' ? language.selfUpdateFailed
+                            : language.selfUpdateInProgress}
+                    {:else}
+                        {getTitle(info.severity)}
+                    {/if}
+                </span>
+            </span>
+        {/snippet}
 
-        <!-- Body -->
-        <div class="px-5 pb-4">
+        {#if isUpdating}
+            <p class="text-sm text-textcolor2 leading-relaxed">{progress?.message}</p>
+            {#if progress?.step === 'done'}
+                <p class="mt-2 text-sm text-textcolor2">{language.selfUpdateReloadHint}</p>
+            {/if}
+            {#if progress?.step === 'downloading' && progress.progress != null}
+                <div class="mt-3 w-full bg-selected rounded-full h-2 overflow-hidden">
+                    <div class="h-full bg-borderc rounded-full transition-all duration-300"
+                        style="width: {progress.progress}%"></div>
+                </div>
+                <p class="mt-1 text-xs text-textcolor2 text-right">{progress.progress}%</p>
+            {/if}
+        {:else}
             <p class="text-sm text-textcolor2 leading-relaxed">
                 {@html language.updatePopupDesc
                     .replace('{{latest}}', info.latestVersion)
@@ -50,30 +121,44 @@
             {/if}
 
             {#if info.popupMessage}
-                <div class="mt-3 text-sm text-textcolor2 leading-relaxed whitespace-pre-line border-t border-selected pt-3">
+                <div class="mt-3 text-sm text-textcolor2 leading-relaxed whitespace-pre-line border-t border-darkborderc pt-3">
                     {info.popupMessage}
                 </div>
             {/if}
-        </div>
+        {/if}
+    </ShDialog>
+{/if}
 
-        <!-- Footer -->
-        <div class="px-5 pb-5 flex gap-2 justify-end">
-            <button
-                class="px-4 py-2 text-sm rounded-lg bg-selected text-textcolor hover:bg-borderc transition-colors"
-                onclick={dismissUpdatePopup}
+{#snippet footerActions()}
+    {#if isUpdating}
+        {#if progress?.step === 'done'}
+            <ShButton variant="success" onclick={handleDone}>
+                {language.selfUpdateReload}
+            </ShButton>
+        {:else if progress?.step === 'error'}
+            <ShButton variant="outline" onclick={handleDone}>
+                {language.close}
+            </ShButton>
+        {/if}
+    {:else if info}
+        <ShButton variant="outline" onclick={dismissUpdatePopup}>
+            {language.updatePopupLater}
+        </ShButton>
+        {#if info.canSelfUpdate}
+            <ShButton
+                variant={info.severity === 'optional' ? 'success' : 'destructive'}
+                onclick={handleSelfUpdate}
             >
-                {language.updatePopupLater}
-            </button>
-            <button
-                class="px-4 py-2 text-sm rounded-lg transition-colors font-medium
-                    {info.severity === 'optional'
-                        ? 'bg-green-600 hover:bg-green-500 text-white'
-                        : 'bg-red-600 hover:bg-red-500 text-white'}"
+                <Download size={14} />
+                {language.selfUpdateNow}
+            </ShButton>
+        {:else}
+            <ShButton
+                variant={info.severity === 'optional' ? 'success' : 'destructive'}
                 onclick={() => { openURL(info.releaseUrl); dismissUpdatePopup(); }}
             >
                 {language.updatePopupViewRelease}
-            </button>
-        </div>
-    </div>
-</div>
-{/if}
+            </ShButton>
+        {/if}
+    {/if}
+{/snippet}

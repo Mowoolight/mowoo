@@ -45,10 +45,13 @@ recc.md
 __pycache__/
 .tauri/
 dist.zip
-/scripts/
+/scripts/*
 !/scripts/updater.cjs
+!/scripts/portable/
+!/scripts/check-help-keys.mjs
 .env
 /server/node/ssl/certificate
+/bin/
 
 
 # Due to Cargo.lock makes the project build fail, we ignore it

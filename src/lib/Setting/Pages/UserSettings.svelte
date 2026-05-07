@@ -1,8 +1,9 @@
 <script lang="ts">
     import { language } from "src/lang";
+    import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import { alertConfirm} from "src/ts/alert";
     import { loadInternalBackup } from "src/ts/globalApi.svelte";
-    import { LoadLocalBackup, SaveLocalBackup, SavePartialLocalBackup, ImportFromSaveZip, CleanupMigratedFiles, SaveServerBackup } from "src/ts/drive/backuplocal";
+    import { LoadLocalBackup, SaveLocalBackup, SaveLocalBackupForUpstream, SavePartialLocalBackup, ImportFromSaveZip, CleanupMigratedFiles, SaveServerBackup } from "src/ts/drive/backuplocal";
     import Button from "src/lib/UI/GUI/Button.svelte";
     import { exportAsDataset } from "src/ts/storage/exportAsDataset";
     import ServerBackupManager from "src/lib/Setting/serverBackupManager.svelte";
@@ -10,8 +11,7 @@
     let showServerBackups = $state(false);
 </script>
 
-<h2 class="mb-2 text-2xl font-bold mt-2">{language.account} & {language.files}</h2>
-
+<SettingPage title="{language.account} & {language.files}">
 <Button
     onclick={async () => {
         if(await alertConfirm(language.backupConfirm)){
@@ -19,6 +19,15 @@
         }
     }} className="mt-2">
     {language.saveBackupLocal}
+</Button>
+
+<Button
+    onclick={async () => {
+        if(await alertConfirm(language.saveBackupForUpstreamConfirm)){
+            SaveLocalBackupForUpstream()
+        }
+    }} className="mt-2">
+    {language.saveBackupForUpstream}
 </Button>
 
 <Button
@@ -99,3 +108,4 @@
     for auld lang syne.
 
 -->
+</SettingPage>

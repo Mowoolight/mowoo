@@ -1,7 +1,7 @@
 <script lang="ts">
 
     import Suggestion from './Suggestion.svelte';
-    import { CameraIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, SparkleIcon, ZapIcon } from "@lucide/svelte";
+    import { CameraIcon, ChevronUpIcon, ChevronDownIcon, DatabaseIcon, GlobeIcon, ImagePlusIcon, LanguagesIcon, Laugh, MenuIcon, MicOffIcon, PackageIcon, Plus, RefreshCcwIcon, ReplyIcon, Send, StepForwardIcon, XIcon, BrainIcon, ArrowDown, SparkleIcon, ZapIcon } from "@lucide/svelte";
     import { selectedCharID, PlaygroundStore, createSimpleCharacter, hypaV3ModalOpen, ScrollToMessageStore, additionalChatMenu, additionalFloatingActionButtons, easyPanelStore, chatDeselected } from "../../ts/stores.svelte";
     import { tick } from 'svelte';
     import Chat from "./Chat.svelte";
@@ -13,13 +13,14 @@
     import { sleep } from "../../ts/util";
     import { language } from "../../lang";
     import { isExpTranslator, translate } from "../../ts/translator/translator";
-    import { alertError, alertNormal, alertWait } from "../../ts/alert";
+    import { alertError, alertWait, notifySuccess, notifyError } from "../../ts/alert";
     import sendSound from '../../etc/send.mp3'
     import { processScript } from "src/ts/process/scripts";
     import CreatorQuote from "./CreatorQuote.svelte";
     import { stopTTS } from "src/ts/process/tts";
     import MainMenu from '../UI/MainMenu.svelte';
     import AssetInput from './AssetInput.svelte';
+    import { scrollWithinContainer } from './scrollWithin';
     import { aiLawApplies, chatFoldedState, chatFoldedStateMessageIndex, downloadFile } from 'src/ts/globalApi.svelte';
     import { runTrigger } from 'src/ts/process/triggers';
     import { v4 } from 'uuid';
@@ -48,6 +49,8 @@
     let toggleStickers:boolean = $state(false)
     let fileInput:string[] = $state([])
     let showNewMessageButton = $state(false)
+    let showScrollNav = $state(false)
+    let scrollNavTimer: ReturnType<typeof setTimeout> | null = null
     let chatsInstance: any = $state()
     let isScrollingToMessage = $state(false)
     let { openModuleList = $bindable(false), openChatList = $bindable(false), customStyle = '' }: Props = $props();
@@ -69,6 +72,56 @@
 
     function scrollToBottom() {
         chatsInstance?.scrollToLatestMessage();
+    }
+
+    function navigateMessage(direction: 'prev' | 'next') {
+        const container = document.querySelector('.default-chat-screen') as HTMLElement | null
+        if (!container) return
+        const messages = Array.from(container.querySelectorAll('[data-chat-index]'))
+            .map(el => ({ el: el as HTMLElement, idx: parseInt(el.getAttribute('data-chat-index')!) }))
+            .sort((a, b) => a.idx - b.idx)
+        if (messages.length === 0) return
+
+        const containerRect = container.getBoundingClientRect()
+        const threshold = 30
+
+        // Find the message currently at the top of the viewport
+        let current = messages[0]
+        for (const msg of messages) {
+            const rect = msg.el.getBoundingClientRect()
+            if (rect.bottom > containerRect.top + threshold) {
+                current = msg
+                break
+            }
+        }
+
+        const currentRect = current.el.getBoundingClientRect()
+
+        if (direction === 'prev') {
+            const topVisible = currentRect.top >= containerRect.top - threshold
+            if (!topVisible) {
+                // Current message top is hidden → scroll to its start
+                scrollWithinContainer(current.el, container, { block: 'start', behavior: 'smooth' })
+            } else {
+                // Already at top → go to previous message start
+                const prev = messages.find(m => m.idx === current.idx - 1)
+                if (prev) {
+                    scrollWithinContainer(prev.el, container, { block: 'start', behavior: 'smooth' })
+                }
+            }
+        } else {
+            const bottomVisible = currentRect.bottom <= containerRect.bottom + threshold
+            if (!bottomVisible) {
+                // Current message bottom is hidden → scroll to its end
+                scrollWithinContainer(current.el, container, { block: 'end', behavior: 'smooth' })
+            } else {
+                // Already see the end → go to next message start
+                const next = messages.find(m => m.idx === current.idx + 1)
+                if (next) {
+                    scrollWithinContainer(next.el, container, { block: 'start', behavior: 'smooth' })
+                }
+            }
+        }
     }
     $effect(() => {
         if(ScrollToMessageStore.value !== -1){
@@ -240,6 +293,7 @@
         // Generate new response
         // Preserve trailing comment/disabled messages (e.g. branch comments)
         let cha = safeStructuredClone(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message)
+        const originalMessages = safeStructuredClone(cha)
         if(cha.length === 0) return
         openMenu = false
 
@@ -260,13 +314,20 @@
             if(!msg) return
         }
         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = cha
-        await sendChatMain()
+        const generated = await sendChatMain()
+
+        const currentMsgs = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message
+
+        // If generation failed, restore original messages
+        if (!generated) {
+            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = originalMessages
+            return
+        }
 
         // Restore trailing comments after the new message
         if (trailingComments.length > 0) {
-            const msgs = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message
-            msgs.push(...trailingComments)
-            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = msgs
+            currentMsgs.push(...trailingComments)
+            DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message = currentMsgs
         }
 
         // Save new response to swipes
@@ -319,11 +380,11 @@
 
     async function sendChatMain(continued:boolean = false) {
 
-        let previousLength = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length
         messageInput = ''
         abortController = new AbortController()
+        let generated = false
         try {
-            await sendChat(-1, {
+            generated = await sendChat(-1, {
                 signal:abortController.signal,
                 continue:continued
             })
@@ -336,6 +397,7 @@
             const audio = new Audio(sendSound);
             audio.play().catch(() => {});
         }
+        return generated
     }
 
     function abortChat(){
@@ -489,11 +551,11 @@
                 await downloadFile(`chat-${v4()}.png`, Buffer.from(mergedCanvas.toDataURL('png').split(',').at(-1), 'base64'))
                 mergedCanvas.remove();
             }
-            alertNormal(language.screenshotSaved)
+            notifySuccess(language.screenshotSaved)
             loadPages = 10
         } catch (error) {
             console.error(error)
-            alertError("Error while taking screenshot")
+            notifyError("Error while taking screenshot")
         }
     }
 
@@ -508,43 +570,65 @@
     openMenu = false
 }}>
     
+    {#if DBState.db.useNodeOnlyScrollButton && currentChat.length > 0}
+        <div
+            class="absolute right-3 bottom-16 z-40 flex flex-col rounded-lg bg-bgcolor/70 backdrop-blur-sm border border-darkborderc border-opacity-30 shadow-lg overflow-hidden transition-opacity duration-300"
+            class:opacity-0={!showScrollNav}
+            class:pointer-events-none={!showScrollNav}
+        >
+            <button
+                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                onclick={() => { showScrollNav = true; if (scrollNavTimer) clearTimeout(scrollNavTimer); scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500); navigateMessage('prev') }}
+            >
+                <ChevronUpIcon size={18} />
+            </button>
+            <div class="border-t border-darkborderc border-opacity-30"></div>
+            <button
+                class="w-9 h-9 text-textcolor2 hover:text-textcolor hover:bg-darkbg/50 flex items-center justify-center transition-colors"
+                onclick={() => { showScrollNav = true; if (scrollNavTimer) clearTimeout(scrollNavTimer); scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500); navigateMessage('next') }}
+            >
+                <ChevronDownIcon size={18} />
+            </button>
+        </div>
+    {/if}
+
     {#if showNewMessageButton}
         {#if (DBState.db.newMessageButtonStyle === 'bottom-center' || !DBState.db.newMessageButtonStyle)}
-            <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-blue-600 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-16 left-1/2 -translate-x-1/2 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-right'}
-            <button class="absolute bottom-20 right-4 bg-blue-500 text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-blue-600 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-20 right-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'bottom-left'}
-            <button class="absolute bottom-20 left-4 bg-blue-500 text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-blue-600 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute bottom-20 left-4 bg-primary text-white px-4 py-2 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={16} />
                 <span>{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'floating-circle'}
-            <button class="absolute bottom-36 right-4 bg-blue-500 text-white w-12 h-12 rounded-full shadow-lg z-50 flex items-center justify-center hover:bg-blue-600 transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
+            <button class="absolute bottom-36 right-4 bg-primary text-white w-12 h-12 rounded-full shadow-lg z-50 flex items-center justify-center hover:bg-primary/90 transition-colors" onclick={scrollToBottom} title="4. 원형 (우하단)">
                 <ArrowDown size={20} />
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'right-center'}
-            <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-blue-500 text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 hover:bg-blue-600 transition-colors" onclick={scrollToBottom}>
+            <button class="absolute top-1/2 right-2 -translate-y-1/2 bg-primary text-white px-2 py-3 rounded-l-lg shadow-lg z-50 flex flex-col items-center gap-1 hover:bg-primary/90 transition-colors" onclick={scrollToBottom}>
                 <ArrowDown size={14} />
                 <span class="text-xs writing-mode-vertical">{language.newMessage}</span>
             </button>
         {/if}
 
         {#if DBState.db.newMessageButtonStyle === 'top-bar'}
-            <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-blue-500 text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-blue-600 transition-colors text-sm" onclick={scrollToBottom}>
+            <button class="absolute top-2 left-1/2 -translate-x-1/2 bg-primary text-white px-6 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 hover:bg-primary/90 transition-colors text-sm" onclick={scrollToBottom}>
                 <ArrowDown size={14} />
                 <span>{language.newMessage}</span>
             </button>
@@ -568,7 +652,16 @@
             <span>{language.selectChatToView}</span>
         </div>
     {:else}
-        <div class="h-full w-full flex flex-col-reverse overflow-y-auto relative default-chat-screen" class:nodeonly-standard={DBState.db.theme === ''} onscroll={(e) => {
+        <div class="h-full w-full flex flex-col-reverse overflow-y-auto relative default-chat-screen"
+            class:nodeonly-standard={DBState.db.theme === ''}
+            class:no-chat-width-wide={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'wide'}
+            class:no-chat-width-full={DBState.db.theme === '' && DBState.db.nodeOnlyStandardChatWidth === 'full'}
+            onscroll={(e) => {
+            if (DBState.db.useNodeOnlyScrollButton) {
+                showScrollNav = true
+                if (scrollNavTimer) clearTimeout(scrollNavTimer)
+                scrollNavTimer = setTimeout(() => { showScrollNav = false }, 1500)
+            }
             //@ts-expect-error scrollHeight/clientHeight/scrollTop don't exist on EventTarget, but target is HTMLElement here
             const scrolled = (e.target.scrollHeight - e.target.clientHeight + e.target.scrollTop)
             if(scrolled < 100 && currentChat.length > loadPages){
@@ -588,7 +681,7 @@
             >
                 {#if DBState.db.useChatSticker}
                     <div onclick={()=>{toggleStickers = !toggleStickers}}
-                         class={"ml-4 bg-textcolor2 flex justify-center items-center  w-12 h-12 rounded-md hover:bg-blue-500 transition-colors "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
+                         class={"ml-4 bg-textcolor2 flex justify-center items-center  w-12 h-12 rounded-md hover:bg-primary/30 transition-colors "+(toggleStickers ? 'text-green-500':'text-textcolor')}>
                         <Laugh/>
                     </div>
                 {/if}
@@ -658,7 +751,7 @@
                 {#if $doingChat || doingChatInputTranslate}
                     <button
                             aria-labelledby="cancel"
-                            class="peer-focus:border-textcolor  flex justify-center border-y border-darkborderc items-center text-gray-100 p-3 hover:bg-blue-500 transition-colors" onclick={abortChat}
+                            class="peer-focus:border-textcolor  flex justify-center border-y border-darkborderc items-center text-gray-100 p-3 hover:bg-primary/30 transition-colors" onclick={abortChat}
                             style:height={inputHeight}
                     >
                         <div class="loadmove chat-process-stage-{$chatProcessStage}"></div>
@@ -666,7 +759,7 @@
                 {:else}
                     <button
                             onclick={send}
-                            class="flex justify-center border-y border-darkborderc items-center text-gray-100 p-3 peer-focus:border-textcolor hover:bg-blue-500 transition-colors button-icon-send"
+                            class="flex justify-center border-y border-darkborderc items-center text-gray-100 p-3 peer-focus:border-textcolor hover:bg-primary/30 transition-colors button-icon-send"
                             style:height={inputHeight}
                     >
                         <Send />
@@ -678,7 +771,7 @@
                             openMenu = !openMenu
                             e.stopPropagation()
                         }}
-                            class="peer-focus:border-textcolor mr-2 flex border-y border-r border-darkborderc justify-center items-center text-gray-100 p-3 rounded-r-md hover:bg-blue-500 transition-colors"
+                            class="peer-focus:border-textcolor mr-2 flex border-y border-r border-darkborderc justify-center items-center text-gray-100 p-3 rounded-r-md hover:bg-primary/30 transition-colors"
                             style:height={inputHeight}
                     >
                         <MenuIcon />
@@ -691,7 +784,7 @@
                         })
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
                     }}
-                         class="peer-focus:border-textcolor mr-2 flex border-y border-r border-darkborderc justify-center items-center text-gray-100 p-3 rounded-r-md hover:bg-blue-500 transition-colors"
+                         class="peer-focus:border-textcolor mr-2 flex border-y border-r border-darkborderc justify-center items-center text-gray-100 p-3 rounded-r-md hover:bg-primary/30 transition-colors"
                          style:height={inputHeight}
                     >
                         <Plus />
@@ -831,27 +924,21 @@
                     onReroll={() => {
                         const cha = DBState.db.characters[$selectedCharID]
                         const chat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
-                        if (chat.fmIndex >= (cha.alternateGreetings.length - 1)){
-                            chat.fmIndex = -1
-                        }
-                        else{
-                            chat.fmIndex += 1
-                        }
+                        if (chat._placeholder) return
+                        const cur = Number.isFinite(chat.fmIndex as number) ? (chat.fmIndex as number) : -1
+                        chat.fmIndex = (cur >= cha.alternateGreetings.length - 1) ? -1 : cur + 1
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
                     }}
                     unReroll={() => {
                         const cha = DBState.db.characters[$selectedCharID]
                         const chat = DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage]
-                        if (chat.fmIndex === -1){
-                            chat.fmIndex = (cha.alternateGreetings.length - 1)
-                        }
-                        else{
-                            chat.fmIndex -= 1
-                        }
+                        if (chat._placeholder) return
+                        const cur = Number.isFinite(chat.fmIndex as number) ? (chat.fmIndex as number) : -1
+                        chat.fmIndex = (cur === -1) ? cha.alternateGreetings.length - 1 : cur - 1
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage] = chat
                     }}
                     isLastMemory={false}
-                    currentPage={(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex ?? -1) + 2}
+                    currentPage={(Number.isFinite(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) ? (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].fmIndex as number) : -1) + 2}
                     totalPages={DBState.db.characters[$selectedCharID].alternateGreetings.length + 1}
 
                 />
@@ -877,7 +964,7 @@
                 }}>
                     <!-- svelte-ignore block_empty -->
                     {#if DBState.db.characters[$selectedCharID].ttsMode === 'webspeech' || DBState.db.characters[$selectedCharID].ttsMode === 'elevenlab'}
-                        <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                        <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                             stopTTS()
                         }}>
                             <MicOffIcon />
@@ -885,7 +972,7 @@
                         </div>
                     {/if}
 
-                    <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors"
+                    <div class="flex items-center cursor-pointer hover:text-primary transition-colors"
                         class:text-textcolor2={(DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length < 2) || (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length - 1].role !== 'char')}
                         onclick={() => {
                             if((DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length < 2) || (DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message[DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].message.length - 1].role !== 'char')){
@@ -900,7 +987,7 @@
 
 
                     {#if DBState.db.showMenuChatList}
-                        <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                        <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                             openChatList = true
                             openMenu = false
                         }}>
@@ -911,7 +998,7 @@
 
                     
                     {#if DBState.db.enableRisuaiProTools && !DBState.db.hideEasyPanel}
-                        <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                        <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                             easyPanelStore.open = !easyPanelStore.open
                         }}>
                             <SparkleIcon />
@@ -920,7 +1007,7 @@
                     {/if}
 
                     {#each additionalChatMenu as menu}
-                        <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                        <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                             menu.callback()
                             openMenu = false
                         }}>
@@ -931,7 +1018,7 @@
 
                     {#if DBState.db.showMenuHypaMemoryModal}
                         {#if DBState.db.hypaV3}
-                            <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                            <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                                 $hypaV3ModalOpen = true
                                 openMenu = false
                             }}>
@@ -944,7 +1031,7 @@
                     {/if}
                     
                     {#if DBState.db.translator !== ''}
-                        <div class={"flex items-center cursor-pointer "+ (DBState.db.useAutoTranslateInput ? 'text-green-500':'lg:hover:text-green-500')} onclick={() => {
+                        <div class={"flex items-center cursor-pointer "+ (DBState.db.useAutoTranslateInput ? 'text-green-500':'lg:hover:text-primary')} onclick={() => {
                             DBState.db.useAutoTranslateInput = !DBState.db.useAutoTranslateInput
                         }}>
                             <GlobeIcon />
@@ -953,14 +1040,14 @@
                         
                     {/if}
             
-                    <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                    <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                         screenShot()
                     }}>
                         <CameraIcon />
                         <span class="ml-2">{language.screenshot}</span>
                     </div>
 
-                    <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={async () => {
+                    <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={async () => {
                         const results = await postChatFile(messageInput)
                         if(!results) return
                         for(const res of results){
@@ -979,7 +1066,7 @@
                     </div>
 
 
-                    <div class={"flex items-center cursor-pointer "+ (DBState.db.useAutoSuggestions ? 'text-green-500':'lg:hover:text-green-500')} onclick={async () => {
+                    <div class={"flex items-center cursor-pointer "+ (DBState.db.useAutoSuggestions ? 'text-green-500':'lg:hover:text-primary')} onclick={async () => {
                         DBState.db.useAutoSuggestions = !DBState.db.useAutoSuggestions
                     }}>
                         <ReplyIcon />
@@ -987,7 +1074,7 @@
                     </div>
 
 
-                    <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                    <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                         DBState.db.characters[$selectedCharID].chats[DBState.db.characters[$selectedCharID].chatPage].modules ??= []
                         openModuleList = true
                         openMenu = false
@@ -997,13 +1084,13 @@
                     </div>
 
                     {#if DBState.db.sideMenuRerollButton}
-                        <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={reroll}>
+                        <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={reroll}>
                             <RefreshCcwIcon />
                             <span class="ml-2">{language.reroll}</span>
                         </div>
                     {/if}
 
-                    <div class="flex items-center cursor-pointer hover:text-green-500 transition-colors" onclick={() => {
+                    <div class="flex items-center cursor-pointer hover:text-primary transition-colors" onclick={() => {
                         openMenu = false
                         quickMenu()
                     }}>
@@ -1021,7 +1108,7 @@
 {#if additionalFloatingActionButtons.length > 0}
     <div class="fixed top-4 right-4 flex flex-col gap-3 z-50">
         {#each additionalFloatingActionButtons as button}
-            <button class="bg-blue-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 hover:bg-blue-600 transition-colors" onclick={() => {
+            <button class="bg-primary text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 hover:bg-primary/90 transition-colors" onclick={() => {
                 button.callback()
             }}>
                 <PluginDefinedIcon ico={button} />

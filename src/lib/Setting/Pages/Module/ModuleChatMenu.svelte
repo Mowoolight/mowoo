@@ -36,7 +36,7 @@
         <div class="flex items-center text-textcolor">
             <h2 class="mt-0 mb-0 text-lg">{language.modules}</h2>
             <div class="grow flex justify-end">
-                <button class="text-textcolor2 hover:text-green-500 mr-2 cursor-pointer items-center" onclick={() => {
+                <button class="text-textcolor2 hover:text-primary mr-2 cursor-pointer items-center" onclick={() => {
                     close('')
                 }}>
                     <XIcon size={24}/>
@@ -68,7 +68,7 @@
                         <div class="grow flex justify-end">
 
                             {#if alertMode}
-                                <button class={"text-textcolor2 mr-2 cursor-pointer hover:text-blue-500 transition-colors"} onclick={async (e) => {
+                                <button class={"text-textcolor2 mr-2 cursor-pointer hover:text-success transition-colors"} onclick={async (e) => {
                                     e.stopPropagation()
 
                                     close(rmodule.id)
