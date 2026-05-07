@@ -1,4 +1,4 @@
-import { type memoryVector, HypaProcesser, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector } from "./hypamemory";
+import { type memoryVector, HypaProcesser, similarity, contextHash, getPersistedHypaVector, setPersistedHypaVector, bulkGetPersistedHypaVectors } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter } from "./taskRateLimiter";
 import {
@@ -1950,13 +1950,24 @@ class HypaProcesserEx extends HypaProcesser {
         const groupsToEmbed: SummaryChunk[][] = [];
         const cachedVectors = new Map<string, memoryVector>();
 
+        // Collect all cache keys across all groups for a single bulk request
+        const allCacheKeyEntries: { group: SummaryChunk[], chunk: SummaryChunk, cacheKey: string }[] = [];
+        for (const [, group] of summaryGroups) {
+            const groupTexts = group.map(c => c.text);
+            for (const chunk of group) {
+                allCacheKeyEntries.push({ group, chunk, cacheKey: cacheKeyFor(chunk.text, groupTexts) });
+            }
+        }
+
+        const bulkCached = await bulkGetPersistedHypaVectors(allCacheKeyEntries.map(e => e.cacheKey));
+
         for (const [, group] of summaryGroups) {
             const groupTexts = group.map(c => c.text);
             let allCached = true;
             const groupCache = new Map<string, memoryVector>();
 
             for (const chunk of group) {
-                const cached: memoryVector = await getPersistedHypaVector(cacheKeyFor(chunk.text, groupTexts));
+                const cached = bulkCached.get(cacheKeyFor(chunk.text, groupTexts));
                 if (cached) {
                     groupCache.set(chunk.text, cached);
                 } else {

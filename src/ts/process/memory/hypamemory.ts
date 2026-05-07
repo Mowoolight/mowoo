@@ -225,8 +225,10 @@ export class HypaProcesser{
         const db = getDatabase()
         const suffix = (this.model === 'custom' && db.hypaCustomSettings?.model?.trim()) ? `-${db.hypaCustomSettings.model.trim()}` : ""
 
+        const cacheKeys = texts.map(t => t + '|' + this.model + suffix)
+        const cachedMap = await bulkGetPersistedHypaVectors(cacheKeys)
         for(let i=0;i<texts.length;i++){
-            const itm = await getPersistedHypaVector(texts[i] + '|' + this.model + suffix)
+            const itm = cachedMap.get(cacheKeys[i])
             if(itm){
                 itm.alreadySaved = true
                 this.vectors.push(itm)
