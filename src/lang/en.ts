@@ -1802,6 +1802,15 @@ export const languageEnglish = {
     backupLocalDownloadDesc: "Generate a fresh backup from current data and download it directly to your device.",
     backupLocalRestoreDesc: "Restore from a backup file on your device.",
 
+    relatedGithub: "GitHub",
+    relatedGithubDesc: "View the source code and contribute to the project.",
+    relatedFeedbackForm: "Feedback Form",
+    relatedFeedbackFormDesc: "Submit issues or share suggestions.",
+    relatedContactEmail: "Contact",
+    relatedContactEmailDesc: "Send a direct email to the developer.",
+    relatedArcaLive: "ArcaLive Channel",
+    relatedArcaLiveDesc: "Discuss with other users in the AI chat channel.",
+
 } satisfies I18nTranslation;
 
 type I18nTranslationFunction = (...args: any[]) => string;
