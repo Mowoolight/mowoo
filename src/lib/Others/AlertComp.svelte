@@ -84,7 +84,7 @@
     let expandedLogs: Set<number> = $state(new Set())
     let allExpanded = $state(false)
     let copiedKey: string | null = $state(null)
-    let togglePresetCurrentOnly = $state(false)
+    let togglePresetShowAll = $state(false)
 
     function closeTogglePresets() {
         togglePresetsOpenStore.set(false)
@@ -1037,16 +1037,16 @@
         {@const currentPromptPresetName = DBState.db.botPresets[DBState.db.botPresetsId]?.name}
         <div class="flex flex-col gap-3">
             <label class="flex items-center gap-2 text-sm text-textcolor2 self-start cursor-pointer select-none">
-                <ShSwitch bind:checked={togglePresetCurrentOnly} />
-                {language.togglePresetFilterCurrentOnly}
+                <ShSwitch bind:checked={togglePresetShowAll} />
+                {language.togglePresetFilterShowAll}
             </label>
 
             {#if !DBState.db.togglePresets?.length}
                 <p class="text-textcolor2 text-sm">{language.togglePresetEmpty}</p>
             {:else}
-                {@const filteredPresets = togglePresetCurrentOnly
-                    ? DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName)
-                    : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i}))}
+                {@const filteredPresets = togglePresetShowAll
+                    ? DBState.db.togglePresets.map((p, i) => ({preset: p, index: i}))
+                    : DBState.db.togglePresets.map((p, i) => ({preset: p, index: i})).filter(({preset}) => preset.promptPresetName === currentPromptPresetName)}
                 {#if filteredPresets.length === 0}
                     <p class="text-textcolor2 text-sm">{language.togglePresetEmptyFiltered}</p>
                 {:else}
@@ -1067,7 +1067,7 @@
                                     {preset.name}
                                 </button>
                                 <div class="flex items-center shrink-0 pr-1 gap-0.5">
-                                    {#if !togglePresetCurrentOnly}
+                                    {#if togglePresetShowAll}
                                         <ShButton variant="ghost" size="icon-xs" onclick={() => {
                                             if (i > 0) {
                                                 const presets = DBState.db.togglePresets!;

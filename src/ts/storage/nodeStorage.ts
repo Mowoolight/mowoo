@@ -33,6 +33,8 @@ export interface PatchItemResult {
     success: boolean
     etag?: string
     persistWarning?: PersistWarning
+    /** Set when the server's chat-internal-field guard rejected the patch. */
+    chatGuardRejected?: boolean
 }
 
 export class NodeStorage{
@@ -337,7 +339,13 @@ export class NodeStorage{
             if (key === 'database/database.bin' && currentEtag) {
                 this._lastDbEtag = currentEtag
             }
-            return { success: false, etag: currentEtag }
+            // Server signals chat-guard rejection via explicit fields. The
+            // error string fallback is kept for forward-compat with deployed
+            // servers that haven't shipped the explicit fields yet.
+            const rejectedByChatGuard = data.chatGuardRejected === true
+                || data.code === 'CHAT_GUARD_REJECTED'
+                || (typeof data.error === 'string' && data.error.includes('chat-internal field ops'))
+            return { success: false, etag: currentEtag, chatGuardRejected: rejectedByChatGuard }
         }
         if (da.status < 200 || da.status >= 300) {
             return { success: false }
