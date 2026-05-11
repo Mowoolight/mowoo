@@ -1807,7 +1807,7 @@ export const languageEnglish = {
     backupLocalRestoreDesc: "Restore from a backup file on your device.",
 
     relatedGithub: "GitHub",
-    relatedGithubDesc: "View the source code and contribute to the project.",
+    relatedGithubDesc: "Star this project to show your support.",
     relatedFeedbackForm: "Feedback Form",
     relatedFeedbackFormDesc: "Submit issues or share suggestions.",
     relatedContactEmail: "Contact",

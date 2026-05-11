@@ -1768,7 +1768,7 @@ export const languageKorean = {
     backupLocalRestoreDesc: "사용자 기기의 백업 파일에서 복원합니다.",
 
     relatedGithub: "GitHub",
-    relatedGithubDesc: "소스 코드를 확인하고 프로젝트에 기여해 보세요.",
+    relatedGithubDesc: "Star를 눌러 프로젝트를 응원해주세요.",
     relatedFeedbackForm: "의견 보내기",
     relatedFeedbackFormDesc: "이슈 제보 및 의견을 보내주세요.",
     relatedContactEmail: "개발자 이메일",

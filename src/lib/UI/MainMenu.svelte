@@ -2,7 +2,8 @@
     import { DBState } from 'src/ts/stores.svelte';
     import Hub from "./Realm/RealmMain.svelte";
     import { OpenRealmStore, RealmInitialOpenChar } from "src/ts/stores.svelte";
-    import { ArrowLeft, ChevronDown, FolderCodeIcon, MailIcon, SendIcon, UsersIcon } from "@lucide/svelte";
+    import { ArrowLeft, ChevronDown, MailIcon, SendIcon, UsersIcon } from "@lucide/svelte";
+    import GithubIcon from "./GithubIcon.svelte";
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
     import { getRisuHub, hubAdditionalHTML } from "src/ts/characterCards";
@@ -111,7 +112,7 @@
       </h1>
         <div class="grid w-full grid-cols-1 gap-4 p-2 md:grid-cols-2">
           <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
-            openURL("https://github.com/mrbart3885/Risuai-NodeOnly")
+            openURL("https://github.com/PocketRisu/PocketRisu")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
               <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.relatedGithub}</h2>
@@ -120,7 +121,7 @@
               </span>
             </div>
             <div aria-hidden="true" class="pointer-events-none absolute -right-12 top-1/2 -translate-y-1/2 text-textcolor">
-              <FolderCodeIcon class={relatedLinkIconClass} strokeWidth={1} />
+              <GithubIcon class={relatedLinkIconClass} />
             </div>
           </button>
           <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
@@ -137,7 +138,7 @@
             </div>
           </button>
           <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-borderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 hover:border-borderc/30 hover:bg-selected/50 hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
-            openURL("mailto:mrbart3885@gmail.com")
+            openURL("mailto:contact@pocketrisu.com")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
               <h2 class="text-2xl font-bold tracking-tight text-textcolor">{language.relatedContactEmail}</h2>
