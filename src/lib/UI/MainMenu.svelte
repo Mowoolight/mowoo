@@ -2,7 +2,7 @@
     import { DBState } from 'src/ts/stores.svelte';
     import Hub from "./Realm/RealmMain.svelte";
     import { OpenRealmStore, RealmInitialOpenChar } from "src/ts/stores.svelte";
-    import { ArrowLeft, ChevronDown, MailIcon, SendIcon, UsersIcon } from "@lucide/svelte";
+    import { ArrowLeft, ChevronDown, MailIcon, SendIcon, TriangleAlertIcon, UsersIcon } from "@lucide/svelte";
     import GithubIcon from "./GithubIcon.svelte";
     import { getVersionString, openURL } from "src/ts/globalApi.svelte";
     import { language } from "src/lang";
@@ -11,6 +11,9 @@
     import Title from "./Title.svelte";
     import { updateInfoStore, updatePopupStore } from "src/ts/update";
     import { publicStatsStore } from "src/ts/publicStats";
+    import { isSecureContext } from "src/ts/secureContext";
+    import { openSettings, SettingsRoute } from "src/ts/routing";
+    import ShButton from "./GUI/ShButton.svelte";
 
     let realmOpen = $state(!DBState.db.hideRealm);
 
@@ -52,6 +55,20 @@
     {/if}
     <div class="w-full flex p-4 flex-col text-textcolor max-w-4xl">
       {#if !$OpenRealmStore}
+      {#if !isSecureContext}
+        <div class="mt-4 w-full bg-yellow-900/30 border border-yellow-700/40 rounded-md px-4 py-3 flex items-center justify-between gap-3 flex-wrap text-yellow-300">
+          <div class="flex items-start gap-2.5 min-w-0 flex-1">
+            <TriangleAlertIcon class="size-4 shrink-0 mt-0.5 text-yellow-400" />
+            <div class="flex flex-col min-w-0">
+              <span class="font-medium text-sm">{language.httpInsecureWarningTitle}</span>
+              <span class="leading-relaxed text-sm opacity-90">{language.httpInsecureWarningBody}</span>
+            </div>
+          </div>
+          <ShButton variant="outline" size="sm" onclick={() => openSettings(SettingsRoute.RemoteAccess)}>
+            {language.httpInsecureOpenRemoteAccess}
+          </ShButton>
+        </div>
+      {/if}
       <div class="mt-4 mb-4 w-full border-t border-t-selected"></div>
       <div class="flex items-center gap-2">
         <button

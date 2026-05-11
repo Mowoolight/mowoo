@@ -1328,5 +1328,9 @@ export const languageVietnamese = {
     nanoGPTManualInput: "Nhập thủ công",
     nanoGPTManualModelSelect: "Chọn mô hình thủ công",
 
+    httpInsecureWarningTitle: "Đang kết nối qua HTTP",
+    httpInsecureWarningBody: "Một số tính năng như plugin có thể không hoạt động. Hãy dùng tính năng Truy cập từ xa để có kết nối HTTPS.",
+    httpInsecureOpenRemoteAccess: "Mở cài đặt",
+
     selectBotHint: "Chọn một bot để bắt đầu trò chuyện",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

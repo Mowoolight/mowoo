@@ -1546,6 +1546,11 @@ export const languageKorean = {
     remoteAccessWarning: "QR 코드와 원격 링크를 절대로 다른 사람과 공유하지 마세요. 링크를 가진 누구나 서버에 자유롭게 접근할 수 있습니다. 실수로 공유한 경우, 원격 접속을 닫고 새 링크를 생성하세요.",
     remoteAccessInfo: "원격 접속을 닫거나 서버를 종료/재시작하면 링크가 만료되며, 다시 연결하면 새로운 링크가 생성됩니다. 이 페이지나 브라우저를 닫아도 원격 접속은 유지됩니다.",
 
+    // 비보안(HTTP) 접속 안내
+    httpInsecureWarningTitle: "HTTP로 접속 중",
+    httpInsecureWarningBody: "플러그인 등 일부 기능이 동작하지 않을 수 있습니다. 원격 접속 기능을 사용하면 HTTPS로 연결할 수 있습니다.",
+    httpInsecureOpenRemoteAccess: "설정 열기",
+
     // 시스템 페이지
     system: "시스템",
     systemLogs: "시스템 로그",

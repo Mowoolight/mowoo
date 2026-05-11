@@ -1328,5 +1328,9 @@ export const languageGerman = {
     nanoGPTManualInput: "Manuelle Eingabe",
     nanoGPTManualModelSelect: "Manuelle Modellauswahl",
 
+    httpInsecureWarningTitle: "Über HTTP verbunden",
+    httpInsecureWarningBody: "Einige Funktionen wie Plugins funktionieren möglicherweise nicht. Verwenden Sie den Fernzugriff für eine HTTPS-Verbindung.",
+    httpInsecureOpenRemoteAccess: "Einstellungen öffnen",
+
     selectBotHint: "Wählen Sie einen Bot zum Chatten",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

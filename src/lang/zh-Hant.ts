@@ -1596,5 +1596,9 @@ export const languageChineseTraditional = {
     "togglePresetRenamed": (oldName: string, newName: string) => `已將「${oldName}」重新命名為「${newName}」。`,
     "togglePresetSaved": (name: string) => `預設「${name}」已儲存。`,
 
+    "httpInsecureWarningTitle": "透過 HTTP 連線",
+    "httpInsecureWarningBody": "插件等部分功能可能無法使用。請使用遠端存取功能以建立 HTTPS 連線。",
+    "httpInsecureOpenRemoteAccess": "開啟設定",
+
     "selectBotHint": "選擇一個機器人開始聊天",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>
