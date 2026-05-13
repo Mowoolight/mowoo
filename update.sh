@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="mrbart3885/Risuai-NodeOnly"
+REPO="PocketRisu/PocketRisu"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -69,7 +69,7 @@ fi
 
 info "Extracting..."
 tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
-EXTRACTED_DIR=$(ls -d "$TMP_DIR"/Risuai-NodeOnly-* 2>/dev/null | head -1)
+EXTRACTED_DIR=$(ls -d "$TMP_DIR"/PocketRisu-* 2>/dev/null | head -1)
 [ -d "$EXTRACTED_DIR" ] || error "Extraction failed."
 
 # ── Replace files (preserve save/) ─────────────────────────────────────────────

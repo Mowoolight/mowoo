@@ -297,7 +297,8 @@ Docker는 프로그램을 "컨테이너"라는 독립된 공간에서 실행해�
 터미널(Windows: PowerShell, Mac/Linux: Terminal)을 열고 아래 명령어를 붙여넣으세요:
 
 ```bash
-curl -L https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/docker-compose.yml | docker compose -f - up -d
+curl -L https://raw.githubusercontent.com/PocketRisu/PocketRisu/main/docker-compose.yml -o docker-compose.yml
+docker compose up -d
 ```
 
 **3단계: 접속**

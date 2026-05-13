@@ -286,8 +286,13 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           NAME="PocketRisu-v${VERSION}-win-x64"
+          LEGACY_NAME="RisuAI-NodeOnly-v${VERSION}-win-x64"
           cd portable
           7z a -tzip "../${NAME}.zip" .
+          # Dual asset: legacy filename for v1.5.x in-app self-update.
+          # v1.5.x server.cjs has the old "RisuAI-NodeOnly-" prefix hardcoded;
+          # this copy lets that code path keep working through the transition.
+          cp "../${NAME}.zip" "../${LEGACY_NAME}.zip"
 
       - name: Package portable (Unix)
         if: matrix.platform != 'win'
@@ -295,15 +300,22 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           NAME="PocketRisu-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
+          LEGACY_NAME="RisuAI-NodeOnly-v${VERSION}-${{ matrix.platform }}-${{ matrix.arch }}"
           mv portable "$NAME"
           tar -czf "${NAME}.tar.gz" "$NAME"
           rm -rf "$NAME"
+          # Dual asset: legacy filename for v1.5.x in-app self-update.
+          # v1.5.x server.cjs has the old "RisuAI-NodeOnly-" prefix hardcoded;
+          # this copy lets that code path keep working through the transition.
+          cp "${NAME}.tar.gz" "${LEGACY_NAME}.tar.gz"
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v7
         with:
           name: portable-${{ matrix.platform }}-${{ matrix.arch }}
-          path: PocketRisu-*
+          path: |
+            PocketRisu-*
+            RisuAI-NodeOnly-*
           retention-days: 1
 
   release:
@@ -324,4 +336,6 @@ jobs:
           name: ${{ github.ref_name }}
           generate_release_notes: true
           draft: true
-          files: PocketRisu-*
+          files: |
+            PocketRisu-*
+            RisuAI-NodeOnly-*

@@ -928,7 +928,7 @@ function getCurrentVersion() {
 }
 
 // ── Deployment type & self-update helpers ─────────────────────────────────────
-const GITHUB_REPO = 'mrbart3885/Risuai-NodeOnly';
+const GITHUB_REPO = 'PocketRisu/PocketRisu';
 
 const deploymentType = (() => {
     // Only portable builds have the .portable marker (created by CI release workflow).
@@ -953,7 +953,7 @@ function getSelfUpdateAssetInfo(version) {
     if (!platformName) return null;
     const arch = process.arch; // x64, arm64
     const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
-    const filename = `RisuAI-NodeOnly-v${version}-${platformName}-${arch}.${ext}`;
+    const filename = `PocketRisu-v${version}-${platformName}-${arch}.${ext}`;
     const url = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${filename}`;
     return { platformName, arch, ext, filename, url };
 }
