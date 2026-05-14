@@ -16,6 +16,7 @@ import {
 } from "src/ts/storage/database.svelte";
 import { type OpenAIChat } from "../index.svelte";
 import { requestChatData } from "../request/request";
+import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 import { chatCompletion, unloadEngine } from "../webllm";
 import { hypaV3ProgressStore } from "src/ts/stores.svelte";
 import { type ChatTokenizer } from "src/ts/tokenizer";
@@ -1810,12 +1811,25 @@ export async function summarize(oaiMessages: OpenAIChat[], isResummarize: boolea
     if (settings.summarizationModel === "subModel") {
         console.log(logPrefix, `Using ax model ${db.subModel} for summarization.`);
 
+        // Match requestChatDataMain's model resolution: when seperateModelsForAxModels
+        // is on, the 'memory' slot overrides db.subModel for this request.
+        const actualModel = (db.seperateModelsForAxModels && db.seperateModels?.memory)
+            ? db.seperateModels.memory
+            : db.subModel;
+        let subModelUrl = '';
+        if (actualModel === 'reverse_proxy') {
+            subModelUrl = db.forceReplaceUrl ?? '';
+        } else if (actualModel?.startsWith('xcustom:::')) {
+            subModelUrl = db.customModels?.find(m => m.id === actualModel)?.url ?? '';
+        }
+
         const response = await requestChatData(
             {
                 formated,
                 bias: {},
                 useStreaming: false,
                 noMultiGen: true,
+                forceLocalNetwork: isLocalNetworkUrl(subModelUrl),
             },
             "memory"
         );
