@@ -2,11 +2,11 @@ import { globalFetch } from "src/ts/globalApi.svelte";
 import { runEmbedding } from "../transformers";
 import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
-import { makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
+import { bulkReadPersistentJson, makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 
-export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'
+export type HypaModel = 'custom'|'ada'|'openai3small'|'openai3large'|'MiniLM'|'MiniLMGPU'|'nomic'|'nomicGPU'|'bgeSmallEn'|'bgeSmallEnGPU'|'bgem3'|'bgem3GPU'|'multiMiniLM'|'multiMiniLMGPU'|'bgeM3Ko'|'bgeM3KoGPU'|'voyageContext3'|'voyageContext4'
 
 // In a typical environment, bge-m3 is a heavy model.
 // If your GPU can't handle this model, you'll see errror below.
@@ -64,6 +64,45 @@ export async function setPersistedHypaVector(cacheKey: string, value: memoryVect
         key: cacheKey,
         value: normalizedValue
     })
+}
+
+export async function bulkGetPersistedHypaVectors(cacheKeys: string[]): Promise<Map<string, memoryVector>> {
+    const result = new Map<string, memoryVector>();
+    const missingCacheKeys: string[] = [];
+
+    for (const cacheKey of new Set(cacheKeys)) {
+        const cached = hypaVectorCache.get(cacheKey);
+        if (cached) {
+            result.set(cacheKey, cached);
+        } else {
+            missingCacheKeys.push(cacheKey);
+        }
+    }
+
+    if (missingCacheKeys.length === 0) {
+        return result;
+    }
+
+    const storageKeys = await Promise.all(
+        missingCacheKeys.map((cacheKey) => makeHashedStorageKey(hypaVectorCachePrefix, cacheKey))
+    );
+    const storageKeyToCacheKey = new Map<string, string>();
+
+    for (let i = 0; i < missingCacheKeys.length; i++) {
+        storageKeyToCacheKey.set(storageKeys[i], missingCacheKeys[i]);
+    }
+
+    const payloads = await bulkReadPersistentJson<{ key: string, value: memoryVector }>(storageKeys);
+
+    for (const [storageKey, payload] of payloads) {
+        const cacheKey = storageKeyToCacheKey.get(storageKey);
+        if (cacheKey && payload?.key === cacheKey) {
+            hypaVectorCache.set(cacheKey, payload.value);
+            result.set(cacheKey, payload.value);
+        }
+    }
+
+    return result;
 }
 
 export class HypaProcesser{
@@ -188,8 +227,10 @@ export class HypaProcesser{
         const db = getDatabase()
         const suffix = (this.model === 'custom' && db.hypaCustomSettings?.model?.trim()) ? `-${db.hypaCustomSettings.model.trim()}` : ""
 
+        const cacheKeys = texts.map((text) => text + '|' + this.model + suffix)
+        const cachedMap = await bulkGetPersistedHypaVectors(cacheKeys)
         for(let i=0;i<texts.length;i++){
-            const itm = await getPersistedHypaVector(texts[i] + '|' + this.model + suffix)
+            const itm = cachedMap.get(cacheKeys[i])
             if(itm){
                 itm.alreadySaved = true
                 this.vectors.push(itm)
