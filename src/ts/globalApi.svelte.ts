@@ -1308,6 +1308,18 @@ function addFetchLogInGlobalFetch(response: any, success: boolean, url: string, 
             return `${value}`
         }
     }
+    const isEmbedding = arg.logCategory === 'embedding'
+    const embeddingResponse = success
+        ? {
+            model: response?.model ?? arg.body?.model,
+            usage: response?.usage,
+            groups: Array.isArray(response?.data) ? response.data.length : undefined,
+            vectors: Array.isArray(response?.data)
+                ? response.data.reduce((count: number, group: any) => count + (Array.isArray(group?.data) ? group.data.length : 0), 0)
+                : undefined,
+            note: 'Embedding vectors omitted from request log'
+        }
+        : response
     recordRequestLog({
         timestamp: started,
         category: arg.logCategory ?? 'other',
@@ -1321,8 +1333,16 @@ function addFetchLogInGlobalFetch(response: any, success: boolean, url: string, 
         streaming: false,
         durationMs: Date.now() - started,
         requestHeaders: stringify(arg.headers ?? {}),
-        requestBody: stringify(arg.body),
-        responseBody: stringify(response),
+        requestBody: isEmbedding ? stringify({
+            model: arg.body?.model,
+            input_type: arg.body?.input_type,
+            inputs: Array.isArray(arg.body?.inputs) ? arg.body.inputs.length : undefined,
+            chunks: Array.isArray(arg.body?.inputs)
+                ? arg.body.inputs.reduce((count: number, group: any) => count + (Array.isArray(group) ? group.length : 1), 0)
+                : Array.isArray(arg.body?.input) ? arg.body.input.length : undefined,
+            note: 'Embedding input text omitted from request log'
+        }) : stringify(arg.body),
+        responseBody: stringify(isEmbedding ? embeddingResponse : response),
     })
 }
 
