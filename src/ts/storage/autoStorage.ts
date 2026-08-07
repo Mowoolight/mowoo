@@ -38,6 +38,13 @@ export class AutoStorage{
         return this.realStorage.createAuth()
     }
 
+    async refreshAuth(): Promise<string> {
+        if (!this.realStorage) {
+            this.realStorage = new NodeStorage()
+        }
+        return this.realStorage.refreshAuth()
+    }
+
     async exportBackup(opts?: ExportBackupOptions) {
         await this.Init()
         return this.realStorage.exportBackup(opts)

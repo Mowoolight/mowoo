@@ -1393,7 +1393,19 @@ async function fetchWithProxy(url: string, arg: GlobalFetchArgs): Promise<Global
 
         const body = arg.body instanceof URLSearchParams ? arg.body.toString() : JSON.stringify(arg.body);
 
-        const response = await fetch(furl, { body, headers, method: arg.method ?? "POST", signal: arg.abortSignal });
+        let response = await fetch(furl, { body, headers, method: arg.method ?? "POST", signal: arg.abortSignal });
+
+        // Contextual embedding requests can run longer than the server JWT's
+        // five-minute lifetime. If the next split request lands after expiry,
+        // refresh with the still-signed token and retry the proxy call once.
+        if (response.status === 400) {
+            const authError = await response.clone().json().catch(() => null);
+            if (authError?.error === 'Token Expired') {
+                headers["risu-auth"] = await forageStorage.refreshAuth();
+                response = await fetch(furl, { body, headers, method: arg.method ?? "POST", signal: arg.abortSignal });
+            }
+        }
+
         const isSuccess = response.ok && response.status >= 200 && response.status < 300;
 
         if (arg.rawResponse) {
