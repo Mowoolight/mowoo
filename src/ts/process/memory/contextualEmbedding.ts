@@ -27,6 +27,10 @@ export function getContextProvider(model: string): ContextualEmbeddingProvider |
 const VOYAGE_API_URL = "https://api.voyageai.com/v1/contextualizedembeddings";
 const MAX_CHUNKS_PER_REQUEST = 16000;
 const MAX_INPUTS_PER_REQUEST = 1000;
+// Ported from the previous 1.8.1 customization. CJK/multilingual text can
+// approach one token per character, so keep requests near 80K estimated
+// tokens and comfortably below Voyage's 120K-token submitted-batch limit.
+const MAX_CHARS_PER_REQUEST = 80000 * 1.5;
 const RETRY_TARGET_TOKENS = 110000;
 
 class VoyageContextProvider implements ContextualEmbeddingProvider {
@@ -80,19 +84,24 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
     const batches: string[][][] = [];
     let currentBatch: string[][] = [];
     let currentChunkCount = 0;
+    let currentCharCount = 0;
 
     for (const group of groups) {
+      const groupCharCount = group.reduce((sum, text) => sum + text.length, 0);
       if (
         currentBatch.length > 0 &&
         (currentBatch.length + 1 > MAX_INPUTS_PER_REQUEST ||
-         currentChunkCount + group.length > MAX_CHUNKS_PER_REQUEST)
+         currentChunkCount + group.length > MAX_CHUNKS_PER_REQUEST ||
+         currentCharCount + groupCharCount > MAX_CHARS_PER_REQUEST)
       ) {
         batches.push(currentBatch);
         currentBatch = [];
         currentChunkCount = 0;
+        currentCharCount = 0;
       }
       currentBatch.push(group);
       currentChunkCount += group.length;
+      currentCharCount += groupCharCount;
     }
 
     if (currentBatch.length > 0) {
