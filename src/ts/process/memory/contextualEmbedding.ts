@@ -44,35 +44,14 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
   }
 
   async embedDocumentGroups(groups: string[][]): Promise<VectorArray[][]> {
-    const apiKey = this.getApiKey();
     const batches = this.batchGroups(groups);
     const allResults: VectorArray[][] = new Array(groups.length);
 
     let groupOffset = 0;
     for (const batch of batches) {
-      const response = await globalFetch(VOYAGE_API_URL, {
-        logCategory: 'embedding',
-        logSource: 'memory',
-        headers: {
-          "Authorization": "Bearer " + apiKey,
-          "Content-Type": "application/json"
-        },
-        body: {
-          "model": this.modelId,
-          "inputs": batch,
-          "input_type": "document"
-        }
-      });
-
-      if (!response.ok || !response.data.data) {
-        throw new Error(JSON.stringify(response.data));
-      }
-
-      for (let i = 0; i < batch.length; i++) {
-        const groupEmbeddings: VectorArray[] = response.data.data[i].data.map(
-          (item: { embedding: VectorArray }) => item.embedding
-        );
-        allResults[groupOffset + i] = groupEmbeddings;
+      const batchResults = await this.embedBatchWithRetry(batch, 'document');
+      for (let i = 0; i < batchResults.length; i++) {
+        allResults[groupOffset + i] = batchResults[i];
       }
 
       groupOffset += batch.length;
@@ -82,28 +61,11 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
   }
 
   async embedQueries(queries: string[]): Promise<VectorArray[]> {
-    const apiKey = this.getApiKey();
-    const response = await globalFetch(VOYAGE_API_URL, {
-      logCategory: 'embedding',
-      logSource: 'memory',
-      headers: {
-        "Authorization": "Bearer " + apiKey,
-        "Content-Type": "application/json"
-      },
-      body: {
-        "inputs": queries.map(s => [s]),
-        "model": this.modelId,
-        "input_type": "query"
-      }
-    });
-
-    if (!response.ok || !response.data.data) {
-      throw new Error(JSON.stringify(response.data));
-    }
-
-    return response.data.data.map(
-      (group: { data: { embedding: VectorArray }[] }) => group.data[0].embedding
+    const results = await this.embedBatchWithRetry(
+      queries.map((query) => [query]),
+      'query'
     );
+    return results.map((group) => group[0]);
   }
 
   getCacheKeySuffix(contextTexts?: string[]): string {
@@ -137,5 +99,61 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
     }
 
     return batches;
+  }
+
+  private async embedBatchWithRetry(
+    groups: string[][],
+    inputType: 'document' | 'query'
+  ): Promise<VectorArray[][]> {
+    const response = await globalFetch(VOYAGE_API_URL, {
+      logCategory: 'embedding',
+      logSource: 'memory',
+      headers: {
+        "Authorization": "Bearer " + this.getApiKey(),
+        "Content-Type": "application/json"
+      },
+      body: {
+        "model": this.modelId,
+        "inputs": groups,
+        "input_type": inputType
+      }
+    });
+
+    if (response.ok && response.data?.data) {
+      return response.data.data.map(
+        (group: { data: { embedding: VectorArray }[] }) =>
+          group.data.map((item) => item.embedding)
+      );
+    }
+
+    if (!this.isTooManyTokensError(response.data)) {
+      throw new Error(JSON.stringify(response.data));
+    }
+
+    // Voyage limits each submitted batch to 120K tokens. Token counts are not
+    // available locally, so split only after the API reports the exact limit.
+    if (groups.length > 1) {
+      const midpoint = Math.ceil(groups.length / 2);
+      const left = await this.embedBatchWithRetry(groups.slice(0, midpoint), inputType);
+      const right = await this.embedBatchWithRetry(groups.slice(midpoint), inputType);
+      return left.concat(right);
+    }
+
+    const group = groups[0];
+    if (group.length > 1) {
+      const midpoint = Math.ceil(group.length / 2);
+      const left = await this.embedBatchWithRetry([group.slice(0, midpoint)], inputType);
+      const right = await this.embedBatchWithRetry([group.slice(midpoint)], inputType);
+      return [left[0].concat(right[0])];
+    }
+
+    throw new Error(
+      `A single input exceeds the ${this.modelId} 120000-token batch limit.`
+    );
+  }
+
+  private isTooManyTokensError(data: any): boolean {
+    return data?.error_code === 'TOO_MANY_TOKENS_IN_BATCH' ||
+      (typeof data?.detail === 'string' && data.detail.includes('max allowed tokens per submitted batch'));
   }
 }
