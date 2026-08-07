@@ -1,4 +1,4 @@
-import { type memoryVector, HypaProcesser, similarity, contextHash, setPersistedHypaVector, bulkGetPersistedHypaVectors } from "./hypamemory";
+import { type memoryVector, HypaProcesser, similarity, contextHash, bulkSetPersistedHypaVectors, bulkGetPersistedHypaVectors } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter } from "./taskRateLimiter";
 import {
@@ -2018,6 +2018,7 @@ class HypaProcesserEx extends HypaProcesser {
             );
 
             const results = await provider.embedDocumentGroups(groups);
+            const vectorsToPersist: { cacheKey: string, value: memoryVector }[] = [];
 
             for (let i = 0; i < groupsToEmbed.length; i++) {
                 const group = groupsToEmbed[i];
@@ -2032,10 +2033,14 @@ class HypaProcesserEx extends HypaProcesser {
                         embedding
                     };
 
-                    await setPersistedHypaVector(cacheKeyFor(chunk.text, groupTexts), vector);
+                    vectorsToPersist.push({
+                        cacheKey: cacheKeyFor(chunk.text, groupTexts),
+                        value: vector
+                    });
                     cachedVectors.set(chunk.text, vector);
                 }
             }
+            await bulkSetPersistedHypaVectors(vectorsToPersist);
         }
 
         for (const chunk of chunks) {

@@ -83,6 +83,18 @@ export async function bulkReadPersistentJson<T>(storageKeys: string[]): Promise<
     return result;
 }
 
+export async function bulkWritePersistentJson<T>(entries: { key: string, value: T }[]): Promise<void> {
+    if (entries.length === 0) {
+        return;
+    }
+
+    await ensureStorageReady();
+    await forageStorage.setItems(entries.map(({ key, value }) => ({
+        key,
+        value: encoder.encode(JSON.stringify(value))
+    })));
+}
+
 export async function makeHashedStorageKey(prefix: string, rawKey: string): Promise<string> {
     const hash = await hasher(encoder.encode(rawKey));
     return `${prefix}${hash}.json`;

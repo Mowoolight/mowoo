@@ -1,4 +1,4 @@
-import { type HypaModel, localModels, setPersistedHypaVector, bulkGetPersistedHypaVectors, contextHash } from "./hypamemory";
+import { type HypaModel, localModels, bulkSetPersistedHypaVectors, bulkGetPersistedHypaVectors, contextHash } from "./hypamemory";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { TaskRateLimiter, TaskCanceledError } from "./taskRateLimiter";
 import { runEmbedding } from "../transformers";
@@ -221,6 +221,7 @@ export class HypaProcessorV2<TMetadata> {
       );
 
       const results = await ctxProvider.embedDocumentGroups(groups);
+      const vectorsToPersist: { cacheKey: string, value: { content: string, embedding: EmbeddingVector } }[] = [];
 
       for (let i = 0; i < groupEntries.length; i++) {
         const [, group] = groupEntries[i];
@@ -234,8 +235,9 @@ export class HypaProcessorV2<TMetadata> {
             id, content, embedding, metadata
           };
 
-          await setPersistedHypaVector(this.getCacheKey(content, ctxGroups.get(id)), {
-            content, embedding
+          vectorsToPersist.push({
+            cacheKey: this.getCacheKey(content, ctxGroups.get(id)),
+            value: { content, embedding }
           });
 
           if (saveToMemory) {
@@ -245,6 +247,7 @@ export class HypaProcessorV2<TMetadata> {
           resultMap.set(id, ebdResult);
         }
       }
+      await bulkSetPersistedHypaVectors(vectorsToPersist);
     } else if (this.isLocalModel()) {
       // Local model: Sequential processing
       for (let i = 0; i < chunks.length; i++) {
@@ -256,7 +259,13 @@ export class HypaProcessorV2<TMetadata> {
           chunk.map((item) => item.content)
         );
 
-        const savePromises = embeddings.map(async (embedding, j) => {
+        const persistEntries = embeddings.map((embedding, j) => ({
+          cacheKey: this.getCacheKey(chunk[j].content, ctxGroups.get(chunk[j].id)),
+          value: { content: chunk[j].content, embedding }
+        }));
+        await bulkSetPersistedHypaVectors(persistEntries);
+
+        embeddings.forEach((embedding, j) => {
           const { id, content, metadata } = chunk[j];
 
           const ebdResult: EmbeddingResult<TMetadata> = {
@@ -266,12 +275,6 @@ export class HypaProcessorV2<TMetadata> {
             metadata,
           };
 
-          // Save to DB
-          await setPersistedHypaVector(this.getCacheKey(content, ctxGroups.get(id)), {
-            content,
-            embedding,
-          } as any);
-
           // Save to memory
           if (saveToMemory) {
             this.vectors.set(id, ebdResult);
@@ -279,8 +282,6 @@ export class HypaProcessorV2<TMetadata> {
 
           resultMap.set(id, ebdResult);
         });
-
-        await Promise.all(savePromises);
       }
     } else {
       // API model: Parallel processing
@@ -297,8 +298,9 @@ export class HypaProcessorV2<TMetadata> {
         EmbeddingVector[]
       >(embeddingTasks);
       const errors: Error[] = [];
+      const vectorsToPersist: { cacheKey: string, value: { content: string, embedding: EmbeddingVector } }[] = [];
 
-      const chunksSavePromises = batchResult.results.map(async (result, i) => {
+      batchResult.results.forEach((result, i) => {
         if (!result.success) {
           errors.push(result.error);
           return;
@@ -310,7 +312,7 @@ export class HypaProcessorV2<TMetadata> {
         }
 
         const chunk = chunks[i];
-        const savePromises = result.data.map(async (embedding, j) => {
+        result.data.forEach((embedding, j) => {
           const { id, content, metadata } = chunk[j];
 
           const ebdResult: EmbeddingResult<TMetadata> = {
@@ -320,11 +322,10 @@ export class HypaProcessorV2<TMetadata> {
             metadata,
           };
 
-          // Save to DB
-          await setPersistedHypaVector(this.getCacheKey(content, ctxGroups.get(id)), {
-            content,
-            embedding,
-          } as any);
+          vectorsToPersist.push({
+            cacheKey: this.getCacheKey(content, ctxGroups.get(id)),
+            value: { content, embedding }
+          });
 
           // Save to memory
           if (saveToMemory) {
@@ -333,11 +334,8 @@ export class HypaProcessorV2<TMetadata> {
 
           resultMap.set(id, ebdResult);
         });
-
-        await Promise.all(savePromises);
       });
-
-      await Promise.all(chunksSavePromises);
+      await bulkSetPersistedHypaVectors(vectorsToPersist);
 
       // Throw major error if there are errors
       if (errors.length > 0) {

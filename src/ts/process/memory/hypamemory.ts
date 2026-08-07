@@ -2,7 +2,7 @@ import { globalFetch } from "src/ts/globalApi.svelte";
 import { runEmbedding } from "../transformers";
 import { appendLastPath } from "src/ts/util";
 import { getDatabase } from "src/ts/storage/database.svelte";
-import { bulkReadPersistentJson, makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
+import { bulkReadPersistentJson, bulkWritePersistentJson, makeHashedStorageKey, readPersistentJson, writePersistentJson } from "src/ts/storage/persistentKv";
 import { isContextModel, getContextProvider } from "./contextualEmbedding";
 import { isLocalNetworkUrl } from "src/ts/network/localNetwork";
 
@@ -64,6 +64,39 @@ export async function setPersistedHypaVector(cacheKey: string, value: memoryVect
         key: cacheKey,
         value: normalizedValue
     })
+}
+
+export async function bulkSetPersistedHypaVectors(
+    entries: { cacheKey: string, value: memoryVector }[]
+): Promise<void> {
+    if (entries.length === 0) {
+        return;
+    }
+
+    const deduplicated = new Map<string, memoryVector>();
+    for (const { cacheKey, value } of entries) {
+        deduplicated.set(cacheKey, {
+            ...value,
+            embedding: Array.from(value.embedding)
+        });
+    }
+
+    const normalizedEntries = Array.from(deduplicated, ([cacheKey, value]) => ({ cacheKey, value }));
+    const storageKeys = await Promise.all(
+        normalizedEntries.map(({ cacheKey }) => makeHashedStorageKey(hypaVectorCachePrefix, cacheKey))
+    );
+
+    for (const { cacheKey, value } of normalizedEntries) {
+        hypaVectorCache.set(cacheKey, value);
+    }
+
+    await bulkWritePersistentJson(storageKeys.map((key, index) => ({
+        key,
+        value: {
+            key: normalizedEntries[index].cacheKey,
+            value: normalizedEntries[index].value
+        }
+    })));
 }
 
 export async function bulkGetPersistedHypaVectors(cacheKeys: string[]): Promise<Map<string, memoryVector>> {
@@ -256,12 +289,12 @@ export class HypaProcesser{
             embedding
         }));
 
-        for(let i=0;i<memoryVectors.length;i++){
-            const vec = memoryVectors[i]
-            if(!vec.alreadySaved){
-                await setPersistedHypaVector(texts[i] + '|' + this.model + suffix, vec)
-            }
-        }
+        await bulkSetPersistedHypaVectors(memoryVectors
+            .map((vec, index) => ({
+                cacheKey: texts[index] + '|' + this.model + suffix,
+                value: vec
+            }))
+            .filter(({ value }) => !value.alreadySaved))
 
         this.vectors = memoryVectors.concat(this.vectors)
     }
