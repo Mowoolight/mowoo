@@ -100,35 +100,14 @@ export class NodeStorage{
     private static sessionInitialized = false
     private static sessionPending: Promise<void> | null = null
     private refreshPending: Promise<string> | null = null
-    private authCheckPending: Promise<void> | null = null
 
     async createAuth(){
-        if (!this.cachedJwt) {
-            await this.checkAuth()
-        }
         const now = Date.now()
         if (this.cachedJwt && this.cachedJwt.expiresAt - now > 30_000) {
             return this.cachedJwt.token
         }
         const token = await this._refreshToken()
-        if (token) return token
-
-        // A refresh can fail after a server restart or before authentication
-        // has fully initialized. Re-enter the normal login/session flow rather
-        // than sending the stale token again.
-        this.cachedJwt = null
-        this.authChecked = false
-        await this.checkAuth()
-        return this.cachedJwt?.token ?? ''
-    }
-
-    async refreshAuth(): Promise<string> {
-        const token = await this._refreshToken()
-        if (token) return token
-        this.cachedJwt = null
-        this.authChecked = false
-        await this.checkAuth()
-        return this.cachedJwt?.token ?? ''
+        return token
     }
 
     // Called once after JWT auth is confirmed. Issues a session cookie so that
@@ -177,7 +156,7 @@ export class NodeStorage{
             this.cachedJwt = { token: data.token, expiresAt: Date.now() + 5 * 60 * 1000 }
             return data.token
         }
-        return ''
+        return this.cachedJwt?.token ?? ''
     }
 
     private async loginWithPassword(password: string) {
@@ -344,20 +323,6 @@ export class NodeStorage{
     }
 
     private async checkAuth(){
-        if (this.authChecked && this.cachedJwt) {
-            await this.initSession()
-            return
-        }
-        if (this.authCheckPending) return this.authCheckPending
-        this.authCheckPending = this.doCheckAuth()
-        try {
-            await this.authCheckPending
-        } finally {
-            this.authCheckPending = null
-        }
-    }
-
-    private async doCheckAuth(){
 
         if(!this.authChecked){
             const data = await (await fetch('/api/test_auth',{

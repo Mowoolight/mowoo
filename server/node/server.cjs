@@ -6393,7 +6393,6 @@ async function startServer() {
         if (httpsOptions) {
             // HTTPS
             server = https.createServer(httpsOptions, app);
-            server.requestTimeout = 30 * 60 * 1000;
             setupProxyStreamWebSocket(server);
             server.listen(port, () => {
                 console.log("[Server] HTTPS server is running.");
@@ -6402,7 +6401,6 @@ async function startServer() {
         } else {
             // HTTP
             server = http.createServer(app);
-            server.requestTimeout = 30 * 60 * 1000;
             setupProxyStreamWebSocket(server);
             server.listen(port, () => {
                 console.log("[Server] HTTP server is running.");
