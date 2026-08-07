@@ -27,6 +27,7 @@ export function getContextProvider(model: string): ContextualEmbeddingProvider |
 const VOYAGE_API_URL = "https://api.voyageai.com/v1/contextualizedembeddings";
 const MAX_CHUNKS_PER_REQUEST = 16000;
 const MAX_INPUTS_PER_REQUEST = 1000;
+const RETRY_TARGET_TOKENS = 110000;
 
 class VoyageContextProvider implements ContextualEmbeddingProvider {
   constructor(
@@ -131,20 +132,33 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
     }
 
     // Voyage limits each submitted batch to 120K tokens. Token counts are not
-    // available locally, so split only after the API reports the exact limit.
+    // available locally, so use the count in the API error to jump directly to
+    // roughly 110K-token pieces instead of repeatedly failing by halving.
+    const reportedTokens = this.getReportedBatchTokens(response.data);
     if (groups.length > 1) {
-      const midpoint = Math.ceil(groups.length / 2);
-      const left = await this.embedBatchWithRetry(groups.slice(0, midpoint), inputType);
-      const right = await this.embedBatchWithRetry(groups.slice(midpoint), inputType);
-      return left.concat(right);
+      const partCount = Math.min(
+        groups.length,
+        Math.max(2, reportedTokens ? Math.ceil(reportedTokens / RETRY_TARGET_TOKENS) : 2)
+      );
+      const results: VectorArray[][] = [];
+      for (const part of this.splitEvenly(groups, partCount)) {
+        results.push(...await this.embedBatchWithRetry(part, inputType));
+      }
+      return results;
     }
 
     const group = groups[0];
     if (group.length > 1) {
-      const midpoint = Math.ceil(group.length / 2);
-      const left = await this.embedBatchWithRetry([group.slice(0, midpoint)], inputType);
-      const right = await this.embedBatchWithRetry([group.slice(midpoint)], inputType);
-      return [left[0].concat(right[0])];
+      const partCount = Math.min(
+        group.length,
+        Math.max(2, reportedTokens ? Math.ceil(reportedTokens / RETRY_TARGET_TOKENS) : 2)
+      );
+      const embeddings: VectorArray[] = [];
+      for (const part of this.splitEvenly(group, partCount)) {
+        const result = await this.embedBatchWithRetry([part], inputType);
+        embeddings.push(...result[0]);
+      }
+      return [embeddings];
     }
 
     throw new Error(
@@ -155,5 +169,23 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
   private isTooManyTokensError(data: any): boolean {
     return data?.error_code === 'TOO_MANY_TOKENS_IN_BATCH' ||
       (typeof data?.detail === 'string' && data.detail.includes('max allowed tokens per submitted batch'));
+  }
+
+  private getReportedBatchTokens(data: any): number | null {
+    const detail = typeof data?.detail === 'string' ? data.detail : '';
+    const match = detail.match(/batch has ([\d,]+) tokens/i);
+    if (!match) return null;
+    const tokens = Number(match[1].replace(/,/g, ''));
+    return Number.isFinite(tokens) && tokens > 0 ? tokens : null;
+  }
+
+  private splitEvenly<T>(items: T[], partCount: number): T[][] {
+    const parts: T[][] = [];
+    for (let i = 0; i < partCount; i++) {
+      const start = Math.floor(i * items.length / partCount);
+      const end = Math.floor((i + 1) * items.length / partCount);
+      if (end > start) parts.push(items.slice(start, end));
+    }
+    return parts;
   }
 }
