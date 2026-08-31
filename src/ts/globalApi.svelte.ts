@@ -14,7 +14,13 @@ import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from
 import { decodeRisuSave, encodeRisuSaveLegacy, findDangerousChatOps, RisuSaveEncoder, RisuSavePatcher, type toSaveType } from "./storage/risuSave";
 import { isHydrating, saveChatToServer, ensureChatHydrated, chatToStub, classifyChat } from "./storage/chatStorage";
 import { AutoStorage } from "./storage/autoStorage";
-import { ConflictError, type PersistWarning } from "./storage/nodeStorage";
+import {
+    ConflictError,
+    type PersistWarning,
+    type AssetManifestDescriptor,
+    type AssetManifestOperation,
+    type AssetManifestTuple,
+} from "./storage/nodeStorage";
 import { supportsPatchSync } from "./platform";
 import { updateAnimationSpeed } from "./gui/animation";
 import { updateColorScheme, updateTextThemeAndCSS } from "./gui/colorscheme";
@@ -29,10 +35,130 @@ import { isLocalNetworkUrl } from "./network/localNetwork";
 import { decodeProxyJobWsChunk, formatProxyStreamErrorMessage, parseProxyJobWsEvent } from "./network/proxyJobWs";
 import {
     createRequestLogScope, recordRequestLog, fetchRequestLogs,
+    extractLegacyUsage,
     type RequestLogCategory, type RequestLogSource, type RequestLogRoute,
 } from "./requestLog";
+import { cacheFullAssetManifest } from './storage/assetManifestCache';
 
 export const forageStorage = new AutoStorage()
+
+function errorMessage(error: unknown): string {
+    if (error instanceof Error && error.message) return error.message
+    if (typeof error === 'string') return error
+    try {
+        return JSON.stringify(error) ?? String(error)
+    } catch {
+        return String(error)
+    }
+}
+
+export async function loadAssetManifestItems(manifest?: AssetManifestDescriptor): Promise<AssetManifestTuple[]> {
+    if (!manifest) return []
+    const items = await forageStorage.getAllAssetManifestItems(manifest)
+    cacheFullAssetManifest(manifest.id, items)
+    return items
+}
+
+export async function resolveAssetManifestNames(
+    manifests: AssetManifestDescriptor[],
+    names: string[],
+    fuzzyManifestIds: ReadonlySet<string> = new Set(),
+): Promise<Record<string, string>> {
+    const owners = manifests
+        .filter((manifest) => manifest?.id)
+        .map((manifest) => ({
+            manifestId: manifest.id,
+            kind: manifest.ownerKind,
+            ownerId: manifest.ownerId,
+            fuzzy: fuzzyManifestIds.has(manifest.id),
+        }))
+    return forageStorage.resolveAssetManifestNames(owners, names, getDatabase().assetMaxDifference ?? 4)
+}
+
+export async function resolvePrioritizedAssetManifestNames(
+    characterManifest: AssetManifestDescriptor | undefined,
+    moduleManifests: AssetManifestDescriptor[],
+    names: string[],
+    { fuzzy = true }: { fuzzy?: boolean } = {},
+): Promise<{ character: Record<string, string>; modules: Record<string, string> }> {
+    const uniqueNames = [...new Set(names.map((name) => name.toLocaleLowerCase()))]
+    const character = characterManifest
+        ? await resolveAssetManifestNames(
+            [characterManifest],
+            uniqueNames,
+            fuzzy ? new Set([characterManifest.id]) : new Set(),
+        )
+        : {}
+    const remaining = uniqueNames.filter((name) => !Object.hasOwn(character, name))
+    const modules = moduleManifests.length > 0 && remaining.length > 0
+        ? await resolveAssetManifestNames(moduleManifests, remaining)
+        : {}
+    return { character, modules }
+}
+
+export async function editAssetManifest(
+    manifest: AssetManifestDescriptor,
+    operations: AssetManifestOperation[],
+): Promise<AssetManifestDescriptor> {
+    if (!manifest.ownerKind || !manifest.ownerId) {
+        throw new Error('Asset manifest owner information is missing')
+    }
+    try {
+        const descriptor = await forageStorage.editAssetManifest(
+            manifest.ownerKind,
+            manifest.ownerId,
+            manifest.id,
+            operations,
+        )
+        activeSavePatcher?.updateAssetManifestBaseline(manifest.ownerKind, manifest.ownerId, descriptor)
+        return descriptor
+    } catch (error) {
+        if (!(error instanceof ConflictError)) throw error
+        const current = (error as ConflictError & { current?: AssetManifestDescriptor }).current
+            ?? await forageStorage.getAssetManifestOwner(manifest.ownerKind, manifest.ownerId)
+        if (current) {
+            const enriched = { ...current, ownerKind: manifest.ownerKind, ownerId: manifest.ownerId }
+            Object.assign(manifest, enriched)
+            activeSavePatcher?.updateAssetManifestBaseline(manifest.ownerKind, manifest.ownerId, enriched)
+        }
+        // Asset operations are positional and not generally idempotent. Do not
+        // replay automatically: a lost response followed by a 409 could append
+        // twice or remove the next tuple. The refreshed descriptor lets the UI
+        // reload safely before the user retries the edit.
+        throw error
+    }
+}
+
+export async function appendAssetManifestItems(
+    manifest: AssetManifestDescriptor,
+    items: AssetManifestTuple[],
+): Promise<AssetManifestDescriptor> {
+    let current = manifest
+    for (let offset = 0; offset < items.length; offset += 1000) {
+        current = await editAssetManifest(
+            current,
+            items.slice(offset, offset + 1000).map((item) => ({ type: 'append' as const, item })),
+        )
+    }
+    return current
+}
+
+export function isAssetManifestConflict(error: unknown): error is ConflictError {
+    return error instanceof ConflictError
+}
+
+export async function recoverAssetManifestConflict(
+    error: unknown,
+    reload: () => Promise<void>,
+): Promise<boolean> {
+    if (!isAssetManifestConflict(error)) return false
+    notifyError(language.errors.assetManifestConflictTitle, {
+        description: language.errors.assetManifestConflictDesc,
+        source: 'asset-manifest-conflict',
+    })
+    await reload()
+    return true
+}
 
 export async function downloadFile(name: string, dat: Uint8Array | ArrayBuffer | string) {
     if (typeof (dat) === 'string') {
@@ -242,6 +368,7 @@ let requestImmediateSaveImpl: ((options?: {
     forceFullWrite?: boolean
 }) => Promise<void> | void) = () => {}
 let patchSyncBaseline: Database | null = null
+let activeSavePatcher: RisuSavePatcher | null = null
 
 // Surfaces server-side persist failures (Stage 1 visibility — see issues.md).
 // The same failure is re-attached on every patch response until cleared, so we
@@ -443,6 +570,7 @@ export async function saveDb() {
         botPreset: false,
         modules: false,
         plugins: false,
+        // Always false: plugin values are in the server kv, not the DB.
         pluginCustomStorage: false
     }
 
@@ -454,7 +582,10 @@ export async function saveDb() {
     let patcher = new RisuSavePatcher()
     if (supportsPatchSync) {
         await patcher.init(patchSyncBaseline ?? getDatabase())
+        activeSavePatcher = patcher
         patchSyncBaseline = null
+    } else {
+        activeSavePatcher = null
     }
 
     function hasTrackedChanges(toSave: toSaveType) {
@@ -462,7 +593,6 @@ export async function saveDb() {
             toSave.botPreset ||
             toSave.modules ||
             toSave.plugins ||
-            toSave.pluginCustomStorage ||
             toSave.root ||
             toSave.character.length > 0 ||
             toSave.chat.length > 0
@@ -477,7 +607,6 @@ export async function saveDb() {
         changeTracker.botPreset = false
         changeTracker.modules = false
         changeTracker.plugins = false
-        changeTracker.pluginCustomStorage = false
         return toSave
     }
 
@@ -501,7 +630,6 @@ export async function saveDb() {
         let didInitBotPresetEffect = false
         let didInitModulesEffect = false
         let didInitPluginsEffect = false
-        let didInitPluginStorageEffect = false
         let didInitGeneralEffect = false
         let trackedActiveChatKey = ''
 
@@ -588,15 +716,9 @@ export async function saveDb() {
             changeTracker.plugins = true
             saveTimeoutExecute()
         })
-        $effect(() => {
-            deepTouch(DBState.db.pluginCustomStorage)
-            if (!didInitPluginStorageEffect) {
-                didInitPluginStorageEffect = true
-                return
-            }
-            changeTracker.pluginCustomStorage = true
-            saveTimeoutExecute()
-        })
+        // No effect for db.pluginCustomStorage: plugin values live in the
+        // server kv (pluginStorageStore) and the DB field stays {} forever, so
+        // toSave.pluginCustomStorage is always false.
         $effect(() => {
             const currentCharacterIds = (DBState?.db?.characters ?? []).map((character) => character?.chaId).filter(Boolean)
             deepTouch(currentCharacterIds)
@@ -685,7 +807,6 @@ export async function saveDb() {
         changeTracker.botPreset = changeTracker.botPreset || toSave.botPreset
         changeTracker.modules = changeTracker.modules || toSave.modules
         changeTracker.plugins = changeTracker.plugins || toSave.plugins
-        changeTracker.pluginCustomStorage = changeTracker.pluginCustomStorage || toSave.pluginCustomStorage
         changeTracker.root = changeTracker.root || toSave.root
     }
 
@@ -801,6 +922,7 @@ export async function saveDb() {
             if (supportsPatchSync) {
                 patcher = new RisuSavePatcher()
                 await patcher.init(mergedBaseline)
+                activeSavePatcher = patcher
             }
         }
         requeueTrackedChanges(toSave)
@@ -830,7 +952,7 @@ export async function saveDb() {
         }
 
         // ── Save changed chat content to server ─────────────────────────
-        const failedChats: [string, string][] = []
+        const failedChats: { chaId: string, chatId: string, message: string }[] = []
         for (const [chaId, chatId] of collectChatsToPersist(db, toSave)) {
             const char = db.characters.find(c => c.chaId === chaId)
             if (!char) continue
@@ -843,11 +965,13 @@ export async function saveDb() {
                 await saveChatToServer(chaId, chatIndex, chatId, chat)
             } catch (e) {
                 console.error(`[Save] Failed to save chat ${chaId}/${chatId}:`, e)
-                failedChats.push([chaId, chatId])
+                failedChats.push({ chaId, chatId, message: errorMessage(e) })
             }
         }
         if (failedChats.length > 0) {
-            throw new Error(`Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}`)
+            throw new Error(
+                `Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}: ${failedChats[0].message}`
+            )
         }
 
         // ── database.bin: exclude chat payload (stubs only via encoder) ──
@@ -1215,6 +1339,7 @@ interface GlobalFetchArgs {
     logCategory?: RequestLogCategory;
     logSource?: RequestLogSource;
     logModel?: string;
+    logPlugin?: string;
 }
 
 /**
@@ -1326,12 +1451,14 @@ function addFetchLogInGlobalFetch(response: any, success: boolean, url: string, 
         source: arg.logSource ?? 'other',
         chatId: arg.chatId,
         model: arg.logModel,
+        provider: arg.logPlugin,
         url,
         method: arg.method ?? 'POST',
         status,
         success,
         streaming: false,
         durationMs: Date.now() - started,
+        ...(arg.logCategory === 'llm' ? extractLegacyUsage(response) : undefined),
         requestHeaders: stringify(arg.headers ?? {}),
         requestBody: isEmbedding ? stringify({
             model: arg.body?.model,
@@ -1457,8 +1584,30 @@ export function getBasename(data: string) {
 }
 
 /**
+ * Extracts "assets/..." path references from an arbitrary value. Non-string
+ * values are serialized first so references nested inside plugin-stored JSON
+ * (objects, arrays) are found too.
+ *
+ * @param {unknown} value - The value to scan.
+ * @returns {string[]} - The asset paths found in the value.
+ */
+export function extractAssetRefs(value: unknown): string[] {
+    let text: string;
+    if (typeof value === 'string') {
+        text = value;
+    } else {
+        try {
+            text = JSON.stringify(value) ?? '';
+        } catch {
+            return [];
+        }
+    }
+    return Array.from(text.matchAll(/assets[/\\][\w-]+\.\w+/g), (m) => m[0]);
+}
+
+/**
  * Retrieves uncleanable resources from the database.
- * 
+ *
  * @param {Database} db - The database to retrieve uncleanable resources from.
  * @param {'basename'|'pure'} [uptype='basename'] - The type of uncleanable resources to retrieve.
  * @returns {string[]} - An array of uncleanable resources.
@@ -1493,6 +1642,11 @@ export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'bas
             addUncleanable(s.path);
         }
     }
+    // Image-gen reference images hang off settings, not off a character. Missing
+    // them here meant cleanChunks deleted an asset the app still points at.
+    addUncleanable(db.NAIImgConfig?.character_image);
+    addUncleanable(db.NAIImgConfig?.image);
+    addUncleanable(db.wavespeedImage?.reference_image);
 
     for (const cha of db.characters) {
         if (cha.image) {
@@ -1520,6 +1674,9 @@ export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'bas
                 addUncleanable(asset.uri);
             }
         }
+        // GPT-SoVITS reference audio is uploaded via saveAsset and read back on
+        // every TTS run — assetId holds the full "assets/..." path.
+        addUncleanable(cha.gptSoVitsConfig?.ref_audio_data?.assetId);
     }
 
     if (db.modules) {
@@ -1539,6 +1696,11 @@ export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'bas
     if (db.personas) {
         db.personas.map((v) => {
             addUncleanable(v.icon);
+            // Legacy field: personas imported from character cards in older
+            // versions kept an `image` alongside `icon`. Nothing reads it today,
+            // but it is a live asset reference — omitting it here deleted the
+            // asset for good.
+            addUncleanable((v as unknown as { image?: string }).image);
 
             if(v.embeddedModule){
                 const assets = v.embeddedModule.assets
@@ -1560,6 +1722,17 @@ export function getUncleanables(db: Database, uptype: 'basename' | 'pure' = 'bas
                 addUncleanable(item.imgFile);
             }
         })
+    }
+
+    // Plugins can persist asset paths (from risuai.saveAsset) anywhere inside
+    // their storage — as plain strings or nested in JSON values — so scan the
+    // serialized text for "assets/..." references instead of assuming a structure.
+    if (db.pluginCustomStorage) {
+        for (const value of Object.values(db.pluginCustomStorage)) {
+            for (const ref of extractAssetRefs(value)) {
+                addUncleanable(ref);
+            }
+        }
     }
     return Array.from(uncleanable);
 }
@@ -1984,6 +2157,7 @@ export interface FetchNativeArgs {
     logCategory?: RequestLogCategory
     logSource?: RequestLogSource
     logModel?: string
+    logPlugin?: string
     /** Reports which transport was actually used. Fires regardless of
      *  logCategory, so a caller that logs at a higher level (the model-preset
      *  path) can record the true route instead of guessing. */
@@ -2010,6 +2184,7 @@ export async function fetchNative(url: string, arg: FetchNativeArgs): Promise<Re
         source: arg.logSource ?? 'other',
         chatId: arg.chatId,
         model: arg.logModel,
+        logPlugin: arg.logPlugin,
         streaming: true,
     })
     const logged = scope.wrap(((_input: RequestInfo | URL, _init?: RequestInit) =>
