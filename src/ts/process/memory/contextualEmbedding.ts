@@ -10,21 +10,20 @@ export interface ContextualEmbeddingProvider {
 }
 
 export function isContextModel(model: string): boolean {
-  return model === 'voyageContext3' || model === 'voyageContext4';
+  return model === 'voyageContext3';
 }
 
 export function getContextProvider(model: string): ContextualEmbeddingProvider | null {
   switch (model) {
     case 'voyageContext3':
-      return new VoyageContextProvider('voyage-context-3', 'voyageContext3');
-    case 'voyageContext4':
-      return new VoyageContextProvider('voyage-context-4', 'voyageContext4');
+      return new VoyageContext3Provider();
     default:
       return null;
   }
 }
 
 const VOYAGE_API_URL = "https://api.voyageai.com/v1/contextualizedembeddings";
+const VOYAGE_MODEL = "voyage-context-3";
 const MAX_CHUNKS_PER_REQUEST = 16000;
 const MAX_INPUTS_PER_REQUEST = 1000;
 // Ported from the previous 1.8.1 customization. CJK/multilingual text can
@@ -32,17 +31,14 @@ const MAX_INPUTS_PER_REQUEST = 1000;
 // tokens and comfortably below Voyage's 120K-token submitted-batch limit.
 const MAX_CHARS_PER_REQUEST = 80000 * 1.5;
 
-class VoyageContextProvider implements ContextualEmbeddingProvider {
-  constructor(
-    readonly modelId: 'voyage-context-3' | 'voyage-context-4',
-    private readonly cacheKeyModel: 'voyageContext3' | 'voyageContext4'
-  ) {}
+class VoyageContext3Provider implements ContextualEmbeddingProvider {
+  readonly modelId = VOYAGE_MODEL;
 
   private getApiKey(): string {
     const db = getDatabase();
     const apiKey = db.voyageApiKey?.trim();
     if (!apiKey) {
-      throw new Error(`${this.modelId} requires a Voyage API Key`);
+      throw new Error('Voyage Context 3 requires a Voyage API Key');
     }
     return apiKey;
   }
@@ -62,7 +58,7 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
           "Content-Type": "application/json"
         },
         body: {
-          "model": this.modelId,
+          "model": VOYAGE_MODEL,
           "inputs": batch,
           "input_type": "document"
         }
@@ -96,7 +92,7 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
       },
       body: {
         "inputs": queries.map(s => [s]),
-        "model": this.modelId,
+        "model": VOYAGE_MODEL,
         "input_type": "query"
       }
     });
@@ -114,7 +110,7 @@ class VoyageContextProvider implements ContextualEmbeddingProvider {
     const ctxPart = contextTexts && contextTexts.length > 1
       ? `|ctx:${contextHash(contextTexts)}`
       : '';
-    return `|${this.cacheKeyModel}${ctxPart}`;
+    return `|voyageContext3${ctxPart}`;
   }
 
   private batchGroups(groups: string[][]): string[][][] {
