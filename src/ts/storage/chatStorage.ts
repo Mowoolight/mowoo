@@ -1,6 +1,7 @@
 import { forageStorage } from "../globalApi.svelte"
 import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./database.svelte"
 import { tick } from "svelte"
+import { createChatDeltaSync, indexedDbChatCopies } from "./chatDeltaSync"
 
 // ── Stub ↔ Placeholder conversion ───────────────────────────────────────────
 
@@ -110,9 +111,16 @@ export async function fetchChatFromServer(chaId: string, chatIndex: number, chat
     return storage.fetchChatContent(chaId, chatIndex, chatId)
 }
 
+// Opening and saving go through delta sync (chatDeltaSync.ts): only what
+// changed crosses the wire for long chats. Exports and backups keep using
+// fetchChatFromServer above, which always transfers the whole chat.
+const chatDeltaSync = createChatDeltaSync({
+    fetchChatContentDelta: (chaId, chatIndex, chatId, base) => forageStorage.realStorage.fetchChatContentDelta(chaId, chatIndex, chatId, base),
+    saveChatContentDelta: (chaId, chatIndex, chatId, chat, base) => forageStorage.realStorage.saveChatContentDelta(chaId, chatIndex, chatId, chat, base),
+}, indexedDbChatCopies)
+
 export async function saveChatToServer(chaId: string, chatIndex: number, chatId: string, chat: Chat): Promise<void> {
-    const storage = forageStorage.realStorage
-    await storage.saveChatContent(chaId, chatIndex, chatId, chat)
+    await chatDeltaSync.saveChat(chaId, chatIndex, chatId, chat)
 }
 
 // ── Hydration ───────────────────────────────────────────────────────────────
@@ -150,7 +158,7 @@ export async function ensureChatHydrated(
     const promise = (async () => {
         hydrationInFlight.add(key)
         try {
-            const full = await fetchChatFromServer(chaId, index, chatId)
+            const full = await chatDeltaSync.fetchChat(chaId, index, chatId)
             if (!full) {
                 console.error(`[chatStorage] hydrate failed: chat not found on server (${key})`)
                 return null

@@ -1142,6 +1142,57 @@ export class NodeStorage{
         return normalizeChat(await decodeRisuSave(buffer))
     }
 
+    /**
+     * Chat delta sync (see server `sendChatContent`): with a base, the server
+     * answers with only the messages after it when the prefix verifies —
+     * `deltaBase` is then set and `chat.message` holds just the rest.
+     */
+    async fetchChatContentDelta(chaId: string, chatIndex: number, chatId: string, base: { count: number, fp: string } | null): Promise<{ chat: any, deltaBase: number | null } | null> {
+        const headers: Record<string, string> = { 'x-chat-id': chatId }
+        if (base) {
+            headers['x-chat-base-count'] = String(base.count)
+            headers['x-chat-base-fp'] = base.fp
+        }
+        const da = await this.authFetchGetWithFirstByteTimeout(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, { headers })
+        if (da.status === 404) return null
+        if (da.status < 200 || da.status >= 300) throw new Error(`fetchChatContent error: ${da.status}`)
+        const deltaHeader = da.headers.get('x-chat-delta-base')
+        const deltaBase = deltaHeader !== null && base && Number(deltaHeader) === base.count ? base.count : null
+        const buffer = new Uint8Array(await da.arrayBuffer())
+        return { chat: normalizeChat(await decodeRisuSave(buffer)), deltaBase }
+    }
+
+    /**
+     * Save a chat, optionally as a delta: `base` names the prefix the server
+     * already holds and `chat.message` carries only the messages after it.
+     * The body is gzipped when the browser can. Returns 'base-mismatch' when
+     * the server could not verify the prefix (the caller then saves in full).
+     */
+    async saveChatContentDelta(chaId: string, chatIndex: number, chatId: string, chat: any, base: { count: number, fp: string } | null): Promise<'ok' | 'base-mismatch'> {
+        const encoded = encodeRisuSaveLegacy(chat)
+        const headers: Record<string, string> = {
+            'content-type': 'application/octet-stream',
+            'x-chat-id': chatId,
+        }
+        if (base) {
+            headers['x-chat-base-count'] = String(base.count)
+            headers['x-chat-base-fp'] = base.fp
+        }
+        const gzipped = await gzipForUpload(encoded)
+        if (gzipped) headers['content-encoding'] = 'gzip'
+        const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
+            method: 'POST',
+            headers,
+            body: (gzipped ?? encoded) as BodyInit,
+        })
+        if (base && da.status === 409) {
+            const body = await da.json().catch(() => ({})) as { code?: string }
+            if (body?.code === 'CHAT_DELTA_BASE_MISMATCH') return 'base-mismatch'
+        }
+        if (da.status < 200 || da.status >= 300) throw new Error(`saveChatContent error: ${da.status}`)
+        return 'ok'
+    }
+
     async saveChatContent(chaId: string, chatIndex: number, chatId: string, chat: any): Promise<void> {
         const encoded = encodeRisuSaveLegacy(chat)
         const da = await this.authFetch(`/api/chat-content/${encodeURIComponent(chaId)}/${chatIndex}`, {
@@ -1333,5 +1384,21 @@ export class CharacterArchiveError extends Error {
         this.name = 'CharacterArchiveError'
         this.code = code
         this.chats = Array.isArray(chats) ? chats : []
+    }
+}
+
+// Chat bodies are text-heavy (Korean prose is ~3 bytes a character), so the
+// upload shrinks several-fold; small bodies are not worth the round trip
+// through the stream. The server's express.raw() inflates Content-Encoding
+// gzip transparently, and old servers never see this header from old code.
+const GZIP_MIN_BYTES = 8 * 1024
+
+async function gzipForUpload(bytes: Uint8Array): Promise<Uint8Array | null> {
+    if (bytes.byteLength < GZIP_MIN_BYTES || typeof CompressionStream === 'undefined') return null
+    try {
+        const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'))
+        return new Uint8Array(await new Response(stream).arrayBuffer())
+    } catch {
+        return null
     }
 }
