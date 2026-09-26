@@ -5,6 +5,7 @@ const https = require('https');
 const path = require('path');
 const net = require('net');
 const compression = require('compression');
+const { messageFingerprints, prefixFingerprint } = require('./chatFingerprint.cjs');
 const htmlparser = require('node-html-parser');
 const { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync, statSync } = require('fs');
 const fs = require('fs/promises')
@@ -5815,6 +5816,43 @@ function restoreColdStorageChat(chat) {
 }
 
 // GET /api/chat-content/:chaId/:chatIndex — retrieve full chat from server
+// ── Chat delta sync ─────────────────────────────────────────────────────────
+// The client may say "I already hold the first N messages, whose prefix
+// fingerprint is F" (x-chat-base-count / x-chat-base-fp). When the stored
+// chat's first N messages fingerprint to the same F, only the rest crosses
+// the wire: a GET returns the chat with message = messages[N:] (response
+// header x-chat-delta-base: N), a POST body carries only messages[N:] and is
+// spliced onto the stored prefix. Anything that does not verify falls back
+// to a full transfer (GET) or a 409 the client answers with a full save
+// (POST) — the delta path never guesses. See chatFingerprint.cjs.
+function readChatDeltaBase(req) {
+    const countHeader = req.headers['x-chat-base-count'];
+    const fp = req.headers['x-chat-base-fp'];
+    if (typeof countHeader !== 'string' || typeof fp !== 'string' || !fp) return null;
+    const count = Number(countHeader);
+    if (!Number.isInteger(count) || count < 1) return null;
+    return { count, fp };
+}
+
+function chatPrefixMatches(chat, base) {
+    const messages = Array.isArray(chat?.message) ? chat.message : null;
+    if (!messages || base.count > messages.length) return false;
+    return prefixFingerprint(messageFingerprints(messages.slice(0, base.count)), base.count) === base.fp;
+}
+
+function sendChatContent(req, res, chat) {
+    // The body depends on the base headers, so a cached response must never
+    // be reused for a request with different ones.
+    res.setHeader('Vary', 'x-chat-base-count, x-chat-base-fp');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    const base = readChatDeltaBase(req);
+    if (base && chatPrefixMatches(chat, base)) {
+        res.setHeader('x-chat-delta-base', String(base.count));
+        return res.send(Buffer.from(encodeRisuSaveLegacy({ ...chat, message: chat.message.slice(base.count) })));
+    }
+    return res.send(Buffer.from(encodeRisuSaveLegacy(chat)));
+}
+
 app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
     if (!await checkAuth(req, res)) { return; }
     try {
@@ -5831,9 +5869,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 if (!restoreColdStorageChat(chat)) {
                     return res.status(500).json({ error: 'Cold storage restore failed' });
                 }
-                const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
-                res.setHeader('Content-Type', 'application/octet-stream');
-                return res.send(encoded);
+                return sendChatContent(req, res, chat);
             }
         }
 
@@ -5855,9 +5891,7 @@ app.get('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
         if (!restoreColdStorageChat(chat)) {
             return res.status(500).json({ error: 'Cold storage restore failed' });
         }
-        const encoded = Buffer.from(encodeRisuSaveLegacy(chat));
-        res.setHeader('Content-Type', 'application/octet-stream');
-        res.send(encoded);
+        sendChatContent(req, res, chat);
     } catch (error) {
         next(error);
     }
@@ -5890,6 +5924,20 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
             }
 
             await ensureChatStore();
+
+            // Delta save: the body holds only the messages after a prefix the
+            // client says the server already has. Splice it onto the stored
+            // chat only when that prefix verifies; otherwise ask for a full
+            // save (the client retries with the whole chat — never an error
+            // the user sees, never a partial write).
+            const deltaBase = readChatDeltaBase(req);
+            if (deltaBase) {
+                const stored = fullChatStore.get(chaId)?.get(expectedChatId);
+                if (!stored || !restoreColdStorageChat(stored) || !Array.isArray(chatData.message) || !chatPrefixMatches(stored, deltaBase)) {
+                    return res.status(409).json({ error: 'Chat delta base does not match', code: 'CHAT_DELTA_BASE_MISMATCH' });
+                }
+                chatData.message = stored.message.slice(0, deltaBase.count).concat(chatData.message);
+            }
 
             // Update fullChatStore
             if (!fullChatStore.has(chaId)) {
