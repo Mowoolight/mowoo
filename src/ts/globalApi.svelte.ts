@@ -53,9 +53,9 @@ import {
     extractLegacyUsage,
     type RequestLogCategory, type RequestLogSource, type RequestLogRoute,
 } from "./requestLog";
-import { cacheFullAssetManifest, getCachedFullAssetManifest } from './storage/assetManifestCache';
+import { createManifestItemsLoader, getCachedFullAssetManifest } from './storage/assetManifestCache';
 import { resolveNamesLocally } from './storage/assetNameLocalResolver';
-import { createAssetNameResolver, type AssetNameHit } from './storage/assetNameResolver'
+import { createAssetNameResolver, createBatchedResolve, type AssetNameHit } from './storage/assetNameResolver'
 import { addLog } from './log'
 
 export const forageStorage = new AutoStorage()
@@ -88,12 +88,7 @@ function errorMessage(error: unknown): string {
     }
 }
 
-export async function loadAssetManifestItems(manifest?: AssetManifestDescriptor): Promise<AssetManifestTuple[]> {
-    if (!manifest) return []
-    const items = await forageStorage.getAllAssetManifestItems(manifest)
-    cacheFullAssetManifest(manifest.id, items)
-    return items
-}
+export const loadAssetManifestItems = createManifestItemsLoader((manifest) => forageStorage.getAllAssetManifestItems(manifest))
 
 // One call for character + modules, answers remembered per manifest set —
 // see assetNameResolver.ts for why (module names lost to character fuzzy
@@ -106,8 +101,10 @@ export async function loadAssetManifestItems(manifest?: AssetManifestDescriptor)
 const resolveAssetNamesCached = createAssetNameResolver(async (owners, names, maxDistance) => {
     const local = resolveNamesLocally(owners, names, maxDistance)
     if (local) return local
-    return forageStorage.resolveAssetManifestNames(owners, names, maxDistance)
+    return resolveAssetNamesBatched(owners, names, maxDistance)
 })
+
+const resolveAssetNamesBatched = createBatchedResolve((owners, names, maxDistance) => forageStorage.resolveAssetManifestNames(owners, names, maxDistance))
 
 // Manifest ids (and descriptor objects — a 404 refresh rewrites the id in
 // place mid-load) already being fetched, so overlapping prefetch calls (chat
