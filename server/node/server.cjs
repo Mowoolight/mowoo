@@ -6294,19 +6294,36 @@ function purgeOrphanArchiveRows(dbObj) {
     return { deleted: orphan.payloads.length, metas: orphan.metas.length, bytes: orphan.bytes };
 }
 
+// A chat the server holds no body for: a `_stub` with nothing in fullChatStore.
+// Bodies are never re-hydrated once lost, so this state is permanent.
+function isBodilessChat(chat) {
+    return !!chat && (chat._stub === true || !Array.isArray(chat.message));
+}
+
+// What a bodiless chat already shows the user: its metadata over no messages.
+function emptyChatFrom(chat) {
+    const { _stub, ...meta } = chat;
+    return { note: '', localLore: [], ...meta, message: [] };
+}
+
 // Full legacy-shaped character for one dbCache entry: chats merged from
-// fullChatStore, asset arrays hydrated from the manifest store. Refuses when
-// any chat body is unavailable — archiving a stub would lose the chat.
-async function hydrateCharacterForArchive(character) {
+// fullChatStore, asset arrays hydrated from the manifest store. A bodiless chat
+// has nothing to archive; it is refused (its name reported) unless the caller
+// accepts storing it as the empty chat it already is.
+async function hydrateCharacterForArchive(character, { acceptLostChats = false } = {}) {
     await ensureChatStore();
     const full = hydrateDatabaseForDisk({ characters: [character] }).characters[0];
-    const bodiless = (full.chats || []).filter((c) => c && (c._stub === true || !Array.isArray(c.message)));
-    if (bodiless.length > 0) {
-        const err = new Error(`${bodiless.length} chat(s) of "${character.name}" have no body on the server; save them first`);
+    const chats = Array.isArray(full.chats) ? full.chats : [];
+    const lost = chats.filter(isBodilessChat);
+    if (lost.length > 0 && !acceptLostChats) {
+        const err = new Error(`${lost.length} chat(s) of "${character.name}" have no body on the server`);
         err.code = 'ARCHIVE_CHATS_UNAVAILABLE';
+        err.chats = lost.map((c) => (typeof c.name === 'string' ? c.name : ''));
         throw err;
     }
-    return normalizeJSON(full);
+    return normalizeJSON(lost.length > 0
+        ? { ...full, chats: chats.map((c) => (isBodilessChat(c) ? emptyChatFrom(c) : c)) }
+        : full);
 }
 
 // Re-inline deactivated characters into a decoded database (export path).
@@ -6475,10 +6492,12 @@ app.post('/api/characters/:chaId/archive', async (req, res, next) => {
             }
             let full;
             try {
-                full = await hydrateCharacterForArchive(character);
+                full = await hydrateCharacterForArchive(character, {
+                    acceptLostChats: req.body?.acceptLostChats === true,
+                });
             } catch (err) {
                 if (err?.code === 'ARCHIVE_CHATS_UNAVAILABLE') {
-                    return res.status(409).json({ error: err.message, code: err.code });
+                    return res.status(409).json({ error: err.message, code: err.code, chats: err.chats });
                 }
                 throw err;
             }

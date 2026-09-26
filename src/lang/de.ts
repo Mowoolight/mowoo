@@ -510,7 +510,8 @@ export const languageGerman = {
     "deactivateCharacter": "Charakter deaktivieren",
     "deactivateCharacterConfirm": (name: string) => `„${name}“ und seine Chats deaktivieren?\n\nDer Charakter bleibt in den Listen, kann aber nicht geöffnet werden; Plugins, Skripte, Suche und Datensatz-Export behandeln ihn wie gelöscht. Die Daten bleiben auf dem Server und können jederzeit wieder aktiviert werden.`,
     "deactivateCharacterDone": "Charakter deaktiviert.",
-    "deactivateCharacterUnsaved": "Einige Chats sind noch nicht auf dem Server gespeichert, daher kann der Charakter nicht deaktiviert werden. Bitte gleich noch einmal versuchen.",
+    "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
+        `${count} Chat(s) von „${name}“ haben auf dem Server keinen Inhalt mehr. Sie gingen in einer früheren Version verloren und öffnen sich schon jetzt als leere Chats.\n\n${list}\n\nSie werden als leere Chats aufbewahrt. Deaktivieren?`,
     "deactivateCharacterFailed": "Deaktivierung fehlgeschlagen: ",
     "activateCharacterConfirm": (name: string) => `„${name}“ ist deaktiviert. Aktivieren?`,
     "activateCharacterMissing": "Die gespeicherten Charakterdaten wurden nicht gefunden, daher ist keine Aktivierung möglich. Serverprotokoll und Speicher-Dashboard prüfen.",

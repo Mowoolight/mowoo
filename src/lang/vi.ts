@@ -510,7 +510,8 @@ export const languageVietnamese = {
     "deactivateCharacter": "Vô hiệu hóa nhân vật",
     "deactivateCharacterConfirm": (name: string) => `Vô hiệu hóa "${name}" và các đoạn chat của nhân vật này?\n\nNhân vật vẫn nằm trong danh sách nhưng không thể mở; plugin, script, tìm kiếm và xuất dataset sẽ coi như đã bị xóa. Dữ liệu vẫn được giữ trên máy chủ và có thể kích hoạt lại bất cứ lúc nào.`,
     "deactivateCharacterDone": "Đã vô hiệu hóa nhân vật.",
-    "deactivateCharacterUnsaved": "Một số đoạn chat chưa được lưu lên máy chủ nên chưa thể vô hiệu hóa. Hãy thử lại sau ít phút.",
+    "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
+        `${count} đoạn chat của "${name}" không còn nội dung trên máy chủ. Chúng đã bị mất ở phiên bản trước và hiện mở ra đều trống.\n\n${list}\n\nChúng sẽ được giữ lại dưới dạng chat trống. Vô hiệu hóa?`,
     "deactivateCharacterFailed": "Vô hiệu hóa thất bại: ",
     "activateCharacterConfirm": (name: string) => `"${name}" đang bị vô hiệu hóa. Kích hoạt lại?`,
     "activateCharacterMissing": "Không tìm thấy dữ liệu nhân vật đã lưu nên không thể kích hoạt. Hãy kiểm tra nhật ký máy chủ và bảng lưu trữ.",

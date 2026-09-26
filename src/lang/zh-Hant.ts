@@ -528,7 +528,8 @@ export const languageChineseTraditional = {
     "deactivateCharacter": "停用角色",
     "deactivateCharacterConfirm": (name: string) => `停用「${name}」及其聊天記錄？\n\n它仍會顯示在列表中但無法開啟，外掛、腳本、搜尋與資料集匯出會將其視為已刪除。資料保留在伺服器上，隨時可以重新啟用。`,
     "deactivateCharacterDone": "角色已停用。",
-    "deactivateCharacterUnsaved": "部分聊天尚未儲存到伺服器，暫時無法停用。請稍後再試。",
+    "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
+        `「${name}」的 ${count} 個聊天在伺服器上已沒有內容。它們在舊版本中遺失，現在開啟也是空的。\n\n${list}\n\n這些聊天將以空聊天保存。要停用嗎？`,
     "deactivateCharacterFailed": "停用失敗：",
     "activateCharacterConfirm": (name: string) => `「${name}」已停用。要重新啟用嗎？`,
     "activateCharacterMissing": "找不到已儲存的角色資料，無法啟用。請檢查伺服器日誌與儲存空間面板。",

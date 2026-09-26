@@ -542,7 +542,8 @@ export const languageEnglish = {
     deactivateCharacterConfirm: (name: string) =>
         `Deactivate "${name}" and its chats.\n\nDeactivating characters you do not use keeps loading and saving light, which helps performance. The character stays in the list but cannot be opened, and plugins, scripts, search and dataset export treat it as deleted. Its data is kept on the server and it can be activated again at any time.\n\nDeactivate?`,
     deactivateCharacterDone: "Character deactivated.",
-    deactivateCharacterUnsaved: "Some chats are not saved on the server yet, so the character cannot be deactivated. Try again in a moment.",
+    deactivateCharacterLostChats: (name: string, count: number, list: string) =>
+        `${count} chat(s) of "${name}" have no content left on the server. They were lost in an earlier version and already open as empty chats.\n\n${list}\n\nThey will be kept as empty chats. Deactivate?`,
     deactivateCharacterFailed: "Deactivation failed: ",
     rebaseSkippedArchived: (names: string) =>
         `"${names}" was deactivated on another device, so this device's unsaved edits to it were discarded.`,
