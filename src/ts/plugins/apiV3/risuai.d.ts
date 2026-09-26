@@ -1345,6 +1345,45 @@ interface RisuaiPluginAPI {
      * @returns Chat object or null if not found
      */
     getChatFromIndex(characterIndex: number, chatIndex: number): Promise<any|null>;
+
+    /**
+     * Parses Risu CBS macros in text with the selected/current character context.
+     * Set processRegex to also apply editprocess regex scripts after CBS parsing.
+     * @param text - Text containing CBS macros
+     * @param options - Parser context options
+     * @returns Parsed text
+     *
+     * @example
+     * ```typescript
+     * const text = await risuai.parseRisuChat('Hello, {{user}}', {
+     *   role: 'user',
+     *   processRegex: true,
+     * });
+     * ```
+     */
+    parseRisuChat(text: string, options?: {
+        /** Character index to use. Defaults to the selected character. */
+        characterIndex?: number;
+        /** Chat index to use as the current chat context. Defaults to the character's current chat. */
+        chatIndex?: number;
+        /** Message index used by chat-aware CBS macros. Defaults to -1. */
+        messageIndex?: number;
+        /** Message role used by role-aware CBS macros. */
+        role?: string;
+        /** Apply editprocess regex scripts after CBS parsing. */
+        processRegex?: boolean;
+        /** Enable chat variable writes from CBS macros. */
+        runVar?: boolean;
+        /** Remove unresolved variable macros. */
+        rmVar?: boolean;
+        /** Use tokenizer-accurate parsing behavior where supported. */
+        tokenizeAccurate?: boolean;
+        /** Additional CBS condition flags. */
+        cbsConditions?: {
+            firstmsg?: boolean;
+            chatRole?: string;
+        };
+    }): Promise<string>;
     
 
     /**

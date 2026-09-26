@@ -16,11 +16,12 @@ import { get } from "svelte/store";
 import { registerMCPModule, unregisterMCPModule } from "src/ts/process/mcp/pluginmcp";
 import { getInlayAsset } from "src/ts/process/files/inlays";
 import { getLLMCache, searchLLMCache } from "src/ts/translator/translator";
-import { hasher } from "src/ts/parser/parser.svelte";
+import { hasher, risuChatParser, type CbsConditions } from "src/ts/parser/parser.svelte";
 import { LLMFlags, LLMFormat, LLMProvider, LLMTokenizer, type LLMModel } from "src/ts/model/types";
 import { readPersistentJson, removePersistentKey, writePersistentJson } from "src/ts/storage/persistentKv";
 import { endAllGenerations } from "src/ts/process/generationState";
 import { sendChat as processSendChat, doingChat } from "src/ts/process/index.svelte";
+import { processScriptFull } from "src/ts/process/scripts";
 import { getModelInfo } from "src/ts/model/modellist";
 import type { ModelModeExtended } from "src/ts/process/request/shared";
 import { requestChatDataMain } from "src/ts/process/request/request";
@@ -1067,6 +1068,51 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 }
             }
             return null;
+        },
+        parseRisuChat: async (text:string, options?:{
+            characterIndex?: number
+            chatIndex?: number
+            messageIndex?: number
+            role?: string
+            processRegex?: boolean
+            runVar?: boolean
+            rmVar?: boolean
+            tokenizeAccurate?: boolean
+            cbsConditions?: CbsConditions
+        }) => {
+            const db = DBState.db
+            const charIds = Object.keys(db.characters);
+            const selectedChar = get(selectedCharID) as string | number;
+            const charId = typeof options?.characterIndex === 'number'
+                ? charIds[options.characterIndex]
+                : db.characters[selectedChar as string]
+                    ? selectedChar as string
+                    : charIds[Number(selectedChar)];
+            const char = charId ? db.characters[charId] : null;
+            const parserChar = char && typeof options?.chatIndex === 'number' && char.chats?.[options.chatIndex]
+                ? { ...char, chatPage: options.chatIndex }
+                : char;
+            const chatID = options?.messageIndex ?? -1;
+            const role = options?.role;
+            const cbsConditions:CbsConditions = {
+                ...(role ? { chatRole: role } : {}),
+                ...(options?.cbsConditions ?? {}),
+            };
+            const parsed = risuChatParser(text ?? '', {
+                chara: parserChar ?? undefined,
+                chatID,
+                role,
+                runVar: options?.runVar,
+                rmVar: options?.rmVar,
+                tokenizeAccurate: options?.tokenizeAccurate,
+                cbsConditions,
+            });
+
+            if(!options?.processRegex || !char){
+                return parsed;
+            }
+
+            return (await processScriptFull(parserChar, parsed, 'editprocess', chatID, cbsConditions)).data;
         },
         setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => {
             const db = DBState.db
