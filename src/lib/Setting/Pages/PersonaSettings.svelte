@@ -2,10 +2,9 @@
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
-    import Check from "src/lib/UI/GUI/CheckInput.svelte";
-    import Help from "src/lib/Others/Help.svelte";
+    import ShSwitch from "src/lib/UI/GUI/ShSwitch.svelte";
+    import ShInput from "src/lib/UI/GUI/ShInput.svelte";
     import TextAreaInput from "src/lib/UI/GUI/TextAreaInput.svelte";
-    import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import FolderedList, { type FolderedItemPlacement } from "src/lib/UI/FolderedList.svelte";
     import { HardDriveUploadIcon, PlusIcon, StarIcon } from "@lucide/svelte";
     import { alertConfirm } from "src/ts/alert";
@@ -111,6 +110,14 @@
     })
 </script>
 
+<!-- Field label + lead help sentence, matching the row-layout settings grammar. -->
+{#snippet fieldLabel(label: string, helpKey: string)}
+    <span class="text-sm text-textcolor">{label}</span>
+    {#if (language.help as any)[helpKey]}
+        <span class="text-xs text-textcolor2">{((language.help as any)[helpKey] as string).split('\n\n')[0].replace(/\*\*|`/g, '')}</span>
+    {/if}
+{/snippet}
+
 <SettingPage title={language.persona}>
     <FolderedList
         {folders}
@@ -163,24 +170,37 @@
                         {/await}
                     {/if}
                 </button>
-                <div class="flex grow flex-col min-w-0 basis-64">
-                    <span class="text-sm text-textcolor2">{language.name} <Help key="personaName" /></span>
-                    <TextInput className="mt-2" marginBottom placeholder="User" bind:value={DBState.db.username}/>
-                    <span class="text-sm text-textcolor2">{language.note} <Help key="personaNote" /></span>
+                <div class="flex grow flex-col min-w-0 basis-64 gap-4">
+                    <label class="flex flex-col gap-1">
+                        {@render fieldLabel(language.name, 'personaName')}
+                        <ShInput className="mt-1" placeholder="User" bind:value={DBState.db.username}/>
+                    </label>
                     {#if DBState.db.personaNote}
-                        <TextInput className="mt-2" marginBottom bind:value={DBState.db.userNote} placeholder={`Put a unique identifier for this persona here.\nExample: [Alternate Hunters persona]`} />
+                        <label class="flex flex-col gap-1">
+                            {@render fieldLabel(language.note, 'personaNote')}
+                            <ShInput className="mt-1" bind:value={DBState.db.userNote} placeholder={`Put a unique identifier for this persona here.\nExample: [Alternate Hunters persona]`} />
+                        </label>
                     {/if}
-                    <span class="text-sm text-textcolor2">{language.description} <Help key="personaDescription" /></span>
-                    <TextAreaInput className="mt-2 mb-4" autocomplete="off" bind:value={DBState.db.personaPrompt} placeholder={`Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]`} />
-                    <div class="flex gap-2 max-w-full flex-wrap items-center">
+                    <div class="flex flex-col gap-1">
+                        {@render fieldLabel(language.description, 'personaDescription')}
+                        <TextAreaInput className="mt-1" autocomplete="off" bind:value={DBState.db.personaPrompt} placeholder={`Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]`} />
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="flex flex-col min-w-0">
+                            {@render fieldLabel(language.largePortrait, 'personaLargePortrait')}
+                        </div>
+                        <ShSwitch
+                            checked={!!DBState.db.personas[DBState.db.selectedPersona].largePortrait}
+                            onCheckedChange={(v) => DBState.db.personas[DBState.db.selectedPersona].largePortrait = v}
+                        />
+                    </div>
+                    <div class="flex gap-2 max-w-full flex-wrap items-center pt-3 border-t border-darkborderc">
                         <ShButton size="sm" variant="outline" onclick={() => exportPersona(index)}>{language.export}</ShButton>
                         <ShButton size="sm" variant="outline" onclick={() => {
                             duplicatePersona(index)
                             changeUserPersona(DBState.db.personas.length - 1, 'noSave')
                         }}>{language.personaDuplicate}</ShButton>
                         <ShButton size="sm" variant="destructive" onclick={() => deletePersona(index)}>{language.remove}</ShButton>
-                        <Check bind:check={DBState.db.personas[DBState.db.selectedPersona].largePortrait} name={language.largePortrait}/>
-                        <Help key="personaLargePortrait" />
                     </div>
                 </div>
             </div>
