@@ -2643,6 +2643,8 @@ export const languageKorean = {
     tokensPerSec: "tok/s",
     cacheHit: "캐시 적중 · {n} 토큰",
   },
+  settingActionAdd: "추가",
+  settingActionRename: "이름 변경",
   settingActionView: "보기",
   settingActionExport: "내보내기",
   settingActionImport: "가져오기",

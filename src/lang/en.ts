@@ -2426,6 +2426,8 @@ export const languageEnglish = {
         cacheHit: "Cache hit · {n} tokens",
     },
 
+    settingActionAdd: "Add",
+    settingActionRename: "Rename",
     settingActionView: "View",
     settingActionExport: "Export",
     settingActionImport: "Import",
