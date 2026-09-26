@@ -39,6 +39,10 @@
             label: opt.labelKey ? ((language as any)[opt.labelKey] ?? opt.label ?? '') : (opt.label ?? '')
         })));
 
+    const helpLead = $derived(
+        item.helpKey ? ((language.help as any)[item.helpKey] as string | undefined)?.split('\n\n')[0].replace(/\*\*|`/g, '') : undefined
+    );
+
     // Reset value if current selection becomes hidden due to condition changes
     $effect(() => {
         const currentVal = untrack(() => localValue);
@@ -48,6 +52,18 @@
     });
 </script>
 
+{#if ctx.layout === 'row' || ctx.layout === 'block'}
+    <!-- Segments can be long ("Budget (Manual Tokens)"), so the control takes
+         the full width under the row-style label + inline help. -->
+    <div class="py-3 border-t border-darkborderc flex flex-col" data-setting-id={item.id}>
+        <span class="text-sm text-textcolor">
+            {getLabel(item)}
+            {#if item.showExperimental}<Help key="experimental"/>{/if}
+        </span>
+        {#if helpLead}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead}</p>{/if}
+        <SegmentedControl className="mt-2" size="sm" bind:value={localValue} options={processedOptions} />
+    </div>
+{:else}
 <span class="text-textcolor {item.classes ?? ''}" data-setting-id={item.id}>
     {getLabel(item)}
     {#if item.showExperimental}<Help key="experimental"/>{/if}
@@ -57,3 +73,4 @@
     bind:value={localValue}
     options={processedOptions}
 />
+{/if}
