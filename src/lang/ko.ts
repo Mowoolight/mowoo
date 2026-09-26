@@ -614,7 +614,8 @@ export const languageKorean = {
   deactivateCharacterConfirm: (name: string) =>
     `"${name}" 캐릭터와 채팅을 비활성화합니다.\n\n사용하지 않는 캐릭터를 비활성화하면 로딩과 저장이 가벼워져 성능 개선에 도움이 됩니다. 목록에는 남지만 열 수 없고, 플러그인이나 스크립트, 검색, 데이터셋 내보내기에서는 삭제된 것처럼 보입니다. 데이터는 서버에 보관되며 언제든 다시 활성화할 수 있습니다.\n\n비활성화할까요?`,
   deactivateCharacterDone: "캐릭터를 비활성화했습니다.",
-  deactivateCharacterUnsaved: "아직 서버에 저장되지 않은 채팅이 있어 비활성화할 수 없습니다. 잠시 후 다시 시도하세요.",
+  deactivateCharacterLostChats: (name: string, count: number, list: string) =>
+      `"${name}"의 채팅 ${count}개는 서버에 내용이 남아 있지 않습니다. 이전 버전에서 유실된 채팅으로, 지금도 열면 빈 채팅으로 보입니다.\n\n${list}\n\n이 채팅들은 빈 채팅으로 보관됩니다. 비활성화할까요?`,
   deactivateCharacterFailed: "비활성화에 실패했습니다: ",
   rebaseSkippedArchived: (names: string) =>
     `"${names}" 캐릭터가 다른 기기에서 비활성화되어 이 기기의 저장되지 않은 변경을 반영하지 못했습니다.`,

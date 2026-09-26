@@ -1468,6 +1468,23 @@ function getInlaySidecarPath(id) {
     return p;
 }
 
+// Derived thumbnails live in a subfolder (inlay scans only look at files; the
+// import swap replaces the whole inlay folder, cache included). A thumbnail is
+// named after the exact source version it was built from, so a cache hit can
+// never be stale; removing a source file removes its version's thumbnail.
+const inlayThumbDir = path.join(inlayDir, '.thumbs')
+
+function inlaySourceVersion(stat) {
+    return `${Math.floor(stat.mtimeMs)}-${stat.size}`;
+}
+
+function getInlayThumbPath(id, version) {
+    if (!isSafeInlayId(id)) throw new Error(`Invalid inlay id: ${id}`);
+    const p = path.join(inlayThumbDir, `${id}.${version}.webp`);
+    assertInsideInlayDir(p);
+    return p;
+}
+
 async function ensureInlayDir() {
     await fs.mkdir(inlayDir, { recursive: true });
 }
@@ -1625,12 +1642,19 @@ function writeInlayFileSync(id, ext, buffer, info = null) {
 async function deleteInlayRawFile(id) {
     const filePath = await resolveInlayFilePath(id);
     if (!filePath) return;
+    const stat = await fs.stat(filePath).catch(() => null);
+    if (stat) await fs.unlink(getInlayThumbPath(id, inlaySourceVersion(stat))).catch(() => {});
     await fs.unlink(filePath).catch(() => {});
 }
 
 function deleteInlayRawFileSync(id) {
     const filePath = resolveInlayFilePathSync(id);
     if (!filePath) return;
+    try {
+        unlinkSync(getInlayThumbPath(id, inlaySourceVersion(statSync(filePath))));
+    } catch {
+        // ignore
+    }
     try {
         unlinkSync(filePath);
     } catch {
@@ -3645,6 +3669,34 @@ const THUMB_MAX_SIDE = 320;
 const THUMB_QUALITY = 75;
 const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 
+// wasm-vips runs synchronously on the event loop, so builds are serialized:
+// other requests get served between them, and a request queued behind a build
+// of the same thumbnail finds it cached instead of building it again.
+let thumbnailQueue = Promise.resolve();
+
+async function getInlayThumbnail(id, sourcePath, version) {
+    const thumbPath = getInlayThumbPath(id, version);
+    const readCached = () => fs.readFile(thumbPath).catch(() => null);
+    const cached = await readCached();
+    if (cached) return cached;
+    const build = thumbnailQueue.then(async () => {
+        const fresh = await readCached();
+        if (fresh) return fresh;
+        const thumb = await generateThumbnail(await fs.readFile(sourcePath));
+        const tmpPath = `${thumbPath}.tmp`;
+        try {
+            await fs.mkdir(inlayThumbDir, { recursive: true });
+            await fs.writeFile(tmpPath, thumb);
+            await fs.rename(tmpPath, thumbPath);
+        } finally {
+            await fs.rm(tmpPath, { force: true });
+        }
+        return thumb;
+    });
+    thumbnailQueue = build.catch(() => {});
+    return await build;
+}
+
 async function generateThumbnail(buffer) {
     const vips = await getVips()
     const img = vips.Image.thumbnailBuffer(buffer, THUMB_MAX_SIDE, {
@@ -3687,13 +3739,14 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
             if (!sidecar || sidecar.type !== 'image' || !THUMB_IMAGE_EXTS.has(sidecar.ext)) {
                 return res.status(404).end()
             }
-            const file = await readInlayFile(id)
-            if (!file) return res.status(404).set('Cache-Control', 'no-store').end()
-            const etag = `"thumb-${Math.floor(file.mtimeMs)}"`
+            const filePath = await resolveInlayFilePath(id)
+            if (!filePath) return res.status(404).set('Cache-Control', 'no-store').end()
+            const stat = await fs.stat(filePath)
+            const etag = `"thumb-${Math.floor(stat.mtimeMs)}"`
             if (req.headers['if-none-match'] === etag) {
                 return res.status(304).set('Cache-Control', 'public, max-age=31536000, immutable').end()
             }
-            const thumb = await generateThumbnail(file.buffer)
+            const thumb = await getInlayThumbnail(id, filePath, inlaySourceVersion(stat))
             res.set({
                 'Content-Type': 'image/webp',
                 'Cache-Control': 'public, max-age=31536000, immutable',
@@ -6294,19 +6347,36 @@ function purgeOrphanArchiveRows(dbObj) {
     return { deleted: orphan.payloads.length, metas: orphan.metas.length, bytes: orphan.bytes };
 }
 
+// A chat the server holds no body for: a `_stub` with nothing in fullChatStore.
+// Bodies are never re-hydrated once lost, so this state is permanent.
+function isBodilessChat(chat) {
+    return !!chat && (chat._stub === true || !Array.isArray(chat.message));
+}
+
+// What a bodiless chat already shows the user: its metadata over no messages.
+function emptyChatFrom(chat) {
+    const { _stub, ...meta } = chat;
+    return { note: '', localLore: [], ...meta, message: [] };
+}
+
 // Full legacy-shaped character for one dbCache entry: chats merged from
-// fullChatStore, asset arrays hydrated from the manifest store. Refuses when
-// any chat body is unavailable — archiving a stub would lose the chat.
-async function hydrateCharacterForArchive(character) {
+// fullChatStore, asset arrays hydrated from the manifest store. A bodiless chat
+// has nothing to archive; it is refused (its name reported) unless the caller
+// accepts storing it as the empty chat it already is.
+async function hydrateCharacterForArchive(character, { acceptLostChats = false } = {}) {
     await ensureChatStore();
     const full = hydrateDatabaseForDisk({ characters: [character] }).characters[0];
-    const bodiless = (full.chats || []).filter((c) => c && (c._stub === true || !Array.isArray(c.message)));
-    if (bodiless.length > 0) {
-        const err = new Error(`${bodiless.length} chat(s) of "${character.name}" have no body on the server; save them first`);
+    const chats = Array.isArray(full.chats) ? full.chats : [];
+    const lost = chats.filter(isBodilessChat);
+    if (lost.length > 0 && !acceptLostChats) {
+        const err = new Error(`${lost.length} chat(s) of "${character.name}" have no body on the server`);
         err.code = 'ARCHIVE_CHATS_UNAVAILABLE';
+        err.chats = lost.map((c) => (typeof c.name === 'string' ? c.name : ''));
         throw err;
     }
-    return normalizeJSON(full);
+    return normalizeJSON(lost.length > 0
+        ? { ...full, chats: chats.map((c) => (isBodilessChat(c) ? emptyChatFrom(c) : c)) }
+        : full);
 }
 
 // Re-inline deactivated characters into a decoded database (export path).
@@ -6475,10 +6545,12 @@ app.post('/api/characters/:chaId/archive', async (req, res, next) => {
             }
             let full;
             try {
-                full = await hydrateCharacterForArchive(character);
+                full = await hydrateCharacterForArchive(character, {
+                    acceptLostChats: req.body?.acceptLostChats === true,
+                });
             } catch (err) {
                 if (err?.code === 'ARCHIVE_CHATS_UNAVAILABLE') {
-                    return res.status(409).json({ error: err.message, code: err.code });
+                    return res.status(409).json({ error: err.message, code: err.code, chats: err.chats });
                 }
                 throw err;
             }

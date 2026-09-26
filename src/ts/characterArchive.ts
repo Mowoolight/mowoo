@@ -48,6 +48,12 @@ function withOverlay<T>(fn: () => Promise<T>): Promise<T> {
     })
 }
 
+function bulletList(names: string[], max = 5): string {
+    const lines = names.slice(0, max).map((n) => `• ${n || '—'}`)
+    if (names.length > max) lines.push(`• … +${names.length - max}`)
+    return lines.join('\n')
+}
+
 /**
  * Deactivate the character at `index`. Asks for confirmation, then:
  * server writes + verifies the payload → the character moves from
@@ -64,11 +70,14 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
     // the stub just carries the marker (exported as upstream's trashTime).
     if (!arg.skipConfirm && !await alertConfirm(language.deactivateCharacterConfirm(name))) return false
 
-    const run = async () => {
+    // acceptLostChats: chats whose body the server no longer has (lost before
+    // this build) are stored as the empty chats they already show as. The
+    // trash accepts that outright; a deactivation asks first.
+    const run = async (acceptLostChats: boolean) => {
         // The server builds the payload from its own view; push any edits
         // still sitting in the client's debounce first so nothing is lost.
         await requestImmediateSave()
-        const stub = await storage().archiveCharacter(char.chaId)
+        const stub = await storage().archiveCharacter(char.chaId, { acceptLostChats })
         // Re-resolve: the array may have shifted while the server worked.
         const idx = db.characters.findIndex((c) => c?.chaId === char.chaId)
         if (idx === -1) return false
@@ -88,17 +97,19 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
         if (!arg.silent) notifySuccess(arg.trash ? language.trashCharacterDone : language.deactivateCharacterDone)
         return true
     }
+    // silent: no overlay, no dialogs — the caller reports (migration logs).
+    const attempt = (acceptLostChats: boolean) => arg.silent ? run(acceptLostChats) : withOverlay(() => run(acceptLostChats))
+    const fail = (error: unknown) => {
+        alertError(language.deactivateCharacterFailed + (error instanceof Error ? error.message : String(error)))
+        return false
+    }
     try {
-        // silent: no overlay, no dialogs — the caller reports (migration logs).
-        return arg.silent ? await run() : await withOverlay(run)
+        return await attempt(!!arg.trash)
     } catch (error) {
         if (arg.silent) throw error
-        if (error instanceof CharacterArchiveError && error.code === 'ARCHIVE_CHATS_UNAVAILABLE') {
-            alertError(language.deactivateCharacterUnsaved)
-        } else {
-            alertError(language.deactivateCharacterFailed + (error instanceof Error ? error.message : String(error)))
-        }
-        return false
+        if (!(error instanceof CharacterArchiveError && error.code === 'ARCHIVE_CHATS_UNAVAILABLE')) return fail(error)
+        if (!await alertConfirm(language.deactivateCharacterLostChats(name, error.chats.length, bulletList(error.chats)))) return false
+        return await attempt(true).catch(fail)
     }
 }
 
@@ -178,8 +189,8 @@ export async function deleteTrashedCharacter(chaId: string): Promise<boolean> {
 /**
  * Legacy trash (a live character carrying `trashTime`, written by older
  * builds, upstream imports or .bin restores) → deactivated + trashedAt.
- * Best effort at boot: a character whose chats are not on the server yet
- * stays legacy and is retried next boot. The lists render both shapes.
+ * Best effort at boot: a character that fails to archive stays legacy and is
+ * retried next boot. The lists render both shapes.
  */
 export async function migrateLegacyTrash(): Promise<void> {
     const db = DBState.db
