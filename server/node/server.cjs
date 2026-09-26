@@ -1468,6 +1468,23 @@ function getInlaySidecarPath(id) {
     return p;
 }
 
+// Derived thumbnails live in a subfolder (inlay scans only look at files; the
+// import swap replaces the whole inlay folder, cache included). A thumbnail is
+// named after the exact source version it was built from, so a cache hit can
+// never be stale; removing a source file removes its version's thumbnail.
+const inlayThumbDir = path.join(inlayDir, '.thumbs')
+
+function inlaySourceVersion(stat) {
+    return `${Math.floor(stat.mtimeMs)}-${stat.size}`;
+}
+
+function getInlayThumbPath(id, version) {
+    if (!isSafeInlayId(id)) throw new Error(`Invalid inlay id: ${id}`);
+    const p = path.join(inlayThumbDir, `${id}.${version}.webp`);
+    assertInsideInlayDir(p);
+    return p;
+}
+
 async function ensureInlayDir() {
     await fs.mkdir(inlayDir, { recursive: true });
 }
@@ -1625,12 +1642,19 @@ function writeInlayFileSync(id, ext, buffer, info = null) {
 async function deleteInlayRawFile(id) {
     const filePath = await resolveInlayFilePath(id);
     if (!filePath) return;
+    const stat = await fs.stat(filePath).catch(() => null);
+    if (stat) await fs.unlink(getInlayThumbPath(id, inlaySourceVersion(stat))).catch(() => {});
     await fs.unlink(filePath).catch(() => {});
 }
 
 function deleteInlayRawFileSync(id) {
     const filePath = resolveInlayFilePathSync(id);
     if (!filePath) return;
+    try {
+        unlinkSync(getInlayThumbPath(id, inlaySourceVersion(statSync(filePath))));
+    } catch {
+        // ignore
+    }
     try {
         unlinkSync(filePath);
     } catch {
@@ -3645,6 +3669,34 @@ const THUMB_MAX_SIDE = 320;
 const THUMB_QUALITY = 75;
 const THUMB_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
 
+// wasm-vips runs synchronously on the event loop, so builds are serialized:
+// other requests get served between them, and a request queued behind a build
+// of the same thumbnail finds it cached instead of building it again.
+let thumbnailQueue = Promise.resolve();
+
+async function getInlayThumbnail(id, sourcePath, version) {
+    const thumbPath = getInlayThumbPath(id, version);
+    const readCached = () => fs.readFile(thumbPath).catch(() => null);
+    const cached = await readCached();
+    if (cached) return cached;
+    const build = thumbnailQueue.then(async () => {
+        const fresh = await readCached();
+        if (fresh) return fresh;
+        const thumb = await generateThumbnail(await fs.readFile(sourcePath));
+        const tmpPath = `${thumbPath}.tmp`;
+        try {
+            await fs.mkdir(inlayThumbDir, { recursive: true });
+            await fs.writeFile(tmpPath, thumb);
+            await fs.rename(tmpPath, thumbPath);
+        } finally {
+            await fs.rm(tmpPath, { force: true });
+        }
+        return thumb;
+    });
+    thumbnailQueue = build.catch(() => {});
+    return await build;
+}
+
 async function generateThumbnail(buffer) {
     const vips = await getVips()
     const img = vips.Image.thumbnailBuffer(buffer, THUMB_MAX_SIDE, {
@@ -3687,13 +3739,14 @@ app.get('/api/asset/:hexKey', sessionAuthMiddleware, async (req, res) => {
             if (!sidecar || sidecar.type !== 'image' || !THUMB_IMAGE_EXTS.has(sidecar.ext)) {
                 return res.status(404).end()
             }
-            const file = await readInlayFile(id)
-            if (!file) return res.status(404).set('Cache-Control', 'no-store').end()
-            const etag = `"thumb-${Math.floor(file.mtimeMs)}"`
+            const filePath = await resolveInlayFilePath(id)
+            if (!filePath) return res.status(404).set('Cache-Control', 'no-store').end()
+            const stat = await fs.stat(filePath)
+            const etag = `"thumb-${Math.floor(stat.mtimeMs)}"`
             if (req.headers['if-none-match'] === etag) {
                 return res.status(304).set('Cache-Control', 'public, max-age=31536000, immutable').end()
             }
-            const thumb = await generateThumbnail(file.buffer)
+            const thumb = await getInlayThumbnail(id, filePath, inlaySourceVersion(stat))
             res.set({
                 'Content-Type': 'image/webp',
                 'Cache-Control': 'public, max-age=31536000, immutable',
