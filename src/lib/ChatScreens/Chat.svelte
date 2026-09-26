@@ -36,6 +36,7 @@
     let retranslate = $state(false)
     let editTranslationMode = $state(false)
     let editTranslationText = $state('')
+    let translationCacheRevision = $state(0)
     let bodyRoot:HTMLElement|null = $state(null)
     interface Props {
         message?: string;
@@ -141,27 +142,28 @@
     }
 
     async function handlePartialEditSave(e: CustomEvent<{ newData: string; target: 'original' | 'translation'; translationKey?: string }>) {
-        if (idx >= 0) {
-            if (e.detail.target === 'translation' && e.detail.translationKey !== undefined) {
-                await setLLMCache(e.detail.translationKey, e.detail.newData)
-                if (editTranslationMode) {
-                    editTranslationText = e.detail.newData
-                }
-                ReloadChatPointer.update((v) => {
-                    v[idx] = (v[idx] ?? 0) + 1
-                    return v
-                })
-                return
-            }
+        if (idx < 0) return
 
-            message = e.detail.newData
-            const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
-            msg.data = e.detail.newData
-            if (msg.swipes && msg.swipeId !== undefined) {
-                msg.swipes[msg.swipeId] = e.detail.newData
-            }
-            displaya(e.detail.newData)
+        if (e.detail.target === 'translation') {
+            if (!e.detail.translationKey) return
+
+            await updateTranslationCache(e.detail.translationKey, e.detail.newData)
+            return
         }
+
+        message = e.detail.newData
+        const msg = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message[idx]
+        msg.data = e.detail.newData
+        if (msg.swipes && msg.swipeId !== undefined) {
+            msg.swipes[msg.swipeId] = e.detail.newData
+        }
+        displaya(e.detail.newData)
+    }
+
+    async function updateTranslationCache(key: string, data: string) {
+        await setLLMCache(key, data)
+        editTranslationText = data
+        translationCacheRevision += 1
     }
 
     async function getTranslationPartialEditContext() {
@@ -216,7 +218,7 @@
 
     async function saveTranslationEdit() {
         const key = await getTranslationCacheKey()
-        await setLLMCache(key, editTranslationText)
+        await updateTranslationCache(key, editTranslationText)
         editTranslationMode = false
     }
 
@@ -430,7 +432,8 @@
         <AutoresizeArea bind:value={editTranslationText} handleLongPress={() => {
             saveTranslationEdit()
         }} />
-    {:else if editMode}
+    {/if}
+    {#if editMode}
         <AutoresizeArea bind:value={message} handleLongPress={() => {
             editMode = false
         }} />
@@ -467,6 +470,7 @@
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"
+            class:hidden={editTranslationMode}
             class:prose-invert={$ColorSchemeTypeStore === 'dark'}
             bind:this={bodyRoot}
             onclick={() => {
@@ -485,6 +489,7 @@
                     {msgDisplay}
                     {name}
                     {bodyRoot}
+                    {translationCacheRevision}
                     modelShortName={
                         messageGenerationInfo ? getModelInfo(messageGenerationInfo?.model).shortName : ''
                     }
@@ -495,7 +500,7 @@
                     {renderRawStreaming}
                     {rawStreamingText} />
             {/key}
-            {#if idx >= 0 && !editMode && !isOptimizedStreamingMessage && partialEditEnabled && (DBState.db.enableBlockPartialEdit || DBState.db.enableDragPartialEdit)}
+            {#if idx >= 0 && !editMode && !editTranslationMode && !isOptimizedStreamingMessage && partialEditEnabled && (DBState.db.enableBlockPartialEdit || DBState.db.enableDragPartialEdit)}
                 <PartialEditController
                     messageData={message}
                     chatIndex={idx}

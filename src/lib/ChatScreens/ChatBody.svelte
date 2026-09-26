@@ -22,6 +22,7 @@
         translated: boolean
         translating: boolean
         retranslate: boolean
+        translationCacheRevision?: number
         bodyRoot?: HTMLElement|null
         modelShortName: string
         renderRawStreaming?: boolean
@@ -37,6 +38,7 @@
         translated = $bindable(false),
         translating = $bindable(false),
         retranslate = $bindable(false),
+        translationCacheRevision = 0,
         bodyRoot,
         modelShortName = '',
         renderRawStreaming = false,
@@ -411,7 +413,10 @@
         }
     }
 
-    let markParsingResult = $derived.by(() => markParsing(msgDisplay, character, idx))
+    let markParsingResult = $derived.by(() => {
+        translationCacheRevision;
+        return markParsing(msgDisplay, character, idx);
+    })
 
     $effect(() => {
         if(shouldRenderRawStreaming){
