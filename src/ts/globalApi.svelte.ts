@@ -2069,28 +2069,28 @@ export function replaceDbResources(db: Database, replacer: { [key: string]: stri
 export function checkCharOrder() {
     let db = getDatabase()
     db.characterOrder = db.characterOrder ?? []
-    let ordered = []
+    const ordered = new Set<string>()
     for (let i = 0; i < db.characterOrder.length; i++) {
         const folder = db.characterOrder[i]
         if (typeof (folder) !== 'string' && folder) {
             for (const f of folder.data) {
-                ordered.push(f)
+                ordered.add(f)
             }
         }
         if (typeof (folder) === 'string') {
-            ordered.push(folder)
+            ordered.add(folder)
         }
     }
 
-    let charIdList: string[] = []
+    const charIdSet = new Set<string>()
 
     for (let i = 0; i < db.characters.length; i++) {
         const char = db.characters[i]
         const charId = char.chaId
         if (!char.trashTime) {
-            charIdList.push(charId)
+            charIdSet.add(charId)
         }
-        if (!ordered.includes(charId)) {
+        if (!ordered.has(charId)) {
             if (charId !== '§temp' && charId !== '§playground' && !char.trashTime) {
                 db.characterOrder.push(charId)
             }
@@ -2102,8 +2102,8 @@ export function checkCharOrder() {
         if (!stub?.chaId) continue
         // Trashed stubs (deactivated + trashedAt) leave the order like trashed characters.
         if (stub.trashedAt) continue
-        charIdList.push(stub.chaId)
-        if (!ordered.includes(stub.chaId)) {
+        charIdSet.add(stub.chaId)
+        if (!ordered.has(stub.chaId)) {
             db.characterOrder.push(stub.chaId)
         }
     }
@@ -2121,7 +2121,7 @@ export function checkCharOrder() {
             // first and fills it afterwards.
             for (let i2 = 0; i2 < data.data.length; i2++) {
                 const data2 = data.data[i2]
-                if (!charIdList.includes(data2)) {
+                if (!charIdSet.has(data2)) {
                     data.data.splice(i2, 1)
                     i2--;
                 }
@@ -2129,7 +2129,7 @@ export function checkCharOrder() {
             db.characterOrder[i] = data
         }
         else {
-            if (!charIdList.includes(data)) {
+            if (!charIdSet.has(data)) {
                 db.characterOrder.splice(i, 1)
                 i--;
             }
@@ -2139,7 +2139,7 @@ export function checkCharOrder() {
     // Sidebar-hidden ids: drop only ids that exist nowhere any more (trashed
     // characters keep their flag so restoring them restores the hidden state).
     if (Array.isArray(db.nodeOnlyHiddenCharacterIds) && db.nodeOnlyHiddenCharacterIds.length > 0) {
-        const known = new Set<string>(charIdList)
+        const known = new Set<string>(charIdSet)
         for (const char of db.characters) {
             if (char?.chaId) known.add(char.chaId)
         }

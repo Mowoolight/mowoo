@@ -469,6 +469,20 @@ async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
         }
     }
 
+    // Same one-time path for upstream's cold-storage-backed plugin storage.
+    // Must run before the kv split below so the restored values move with it.
+    const coldPluginResult = restoreColdPluginStorageInDb(dbObj);
+    if (coldPluginResult.restored > 0 || coldPluginResult.failed > 0) needsPersist = true;
+    if (coldPluginResult.restored > 0) {
+        logger.info(`[ColdStorage] Restored ${coldPluginResult.restored} plugin storage key(s) from cold storage`);
+    }
+    if (coldPluginResult.failed > 0) {
+        logger.error(`[ColdStorage] ${coldPluginResult.failed} plugin storage key(s) could not be restored and were kept under pluginCustomStorage._coldplugin. Cold storage KV data is preserved.`);
+        for (const key of coldPluginResult.failedKeys) {
+            logger.error(`[ColdStorage]   - "${key}"`);
+        }
+    }
+
     // One-time move of pluginCustomStorage into kv (plugin-storage/*). Runs on
     // every cold decode (boot, /api/read, /api/patch, import, snapshot restore)
     // so a blob written by an older build or upstream is split on first load.
@@ -5718,6 +5732,52 @@ function restoreColdStorageCharactersInDb(dbObj) {
             result.failedNames.push(char.name || `(index ${i})`);
             promoteFailedColdStorageStub(char);
         }
+    }
+    return result;
+}
+
+// Upstream (cad8595a) keeps v3 pluginStorage values in cold storage and leaves
+// only a key -> cold id map in pluginCustomStorage._coldplugin. Fold the
+// values back inline so pluginStorage.migrateFromDb moves them into kv.
+// Keys whose entry is missing or unreadable stay in _coldplugin as recovery
+// breadcrumbs; their cold storage KV entries are never deleted.
+const COLD_PLUGIN_STORAGE_KEY = '_coldplugin';
+
+function restoreColdPluginStorageInDb(dbObj) {
+    const result = { restored: 0, failed: 0, failedKeys: [] };
+    const storage = dbObj?.pluginCustomStorage;
+    if (!storage || typeof storage !== 'object' || Array.isArray(storage)) return result;
+    if (!Object.prototype.hasOwnProperty.call(storage, COLD_PLUGIN_STORAGE_KEY)) return result;
+    const map = storage[COLD_PLUGIN_STORAGE_KEY];
+    if (!map || typeof map !== 'object' || Array.isArray(map)) return result;
+
+    const remaining = {};
+    for (const key of Object.keys(map)) {
+        const coldId = map[key];
+        let entry = null;
+        try {
+            entry = typeof coldId === 'string' && coldId
+                ? readColdStorageJsonEntry(coldId, { migrateLegacy: true })
+                : null;
+        } catch (err) {
+            logger.error(`[ColdStorage] plugin storage key "${key}" (${coldId}) could not be read:`, err.message);
+        }
+        if (!entry) {
+            remaining[key] = coldId;
+            result.failed++;
+            result.failedKeys.push(key);
+            continue;
+        }
+        // The cold copy is upstream's live value; an inline key of the same
+        // name is a stale pre-migration leftover.
+        storage[key] = entry.coldData;
+        result.restored++;
+    }
+
+    if (Object.keys(remaining).length > 0) {
+        storage[COLD_PLUGIN_STORAGE_KEY] = remaining;
+    } else {
+        delete storage[COLD_PLUGIN_STORAGE_KEY];
     }
     return result;
 }
