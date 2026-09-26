@@ -1089,6 +1089,9 @@ const trimCache = new Map<string, string>()
 const TRIM_CACHE_MAX = 200
 
 export function trimMarkdown(data:string){
+    if(!data){
+        return ''
+    }
     // Include hideAllImages in cache key — DOMPurify hook rewrites <img> based on this flag
     const cacheKey = (DBState.db?.hideAllImages ? '1|' : '0|') + data
     let cached = trimCache.get(cacheKey)
