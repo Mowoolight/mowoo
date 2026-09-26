@@ -1,4 +1,5 @@
 <script lang="ts">
+    import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
     import { DBState } from 'src/ts/stores.svelte';
     import { language } from "src/lang";
     import { LLMFlags, LLMFormat, LLMTokenizer } from "src/ts/model/types";
@@ -25,16 +26,7 @@
     function f(id: string, label: string, helpKey?: string): SettingItem {
         return { id: `customModels.${id}`, type: 'custom', fallbackLabel: label, helpKey }
     }
-
-    function helpLead(key: string | undefined): string | undefined {
-        if (!key) return undefined
-        return ((language.help as any)[key] as string | undefined)?.split('\n\n')[0]
-    }
 </script>
-{#snippet fieldLabel(label: string, helpKey: string | undefined)}
-    <span class="text-sm text-textcolor">{label}</span>
-    {#if helpLead(helpKey)}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead(helpKey)}</p>{/if}
-{/snippet}
 
 
 {#snippet CustomFlagButton(index:number,name:string,flag:LLMFlags)}
@@ -164,7 +156,7 @@
     {#snippet control()}<TextInput className="sm:w-64 h-8" size="sm" padding fullwidth bind:value={DBState.db.customModels[index].key}/>{/snippet}
 </SettingRowLayout>
             <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`${language.additionalParams}`, undefined)}
+    <SettingFieldLabel label={`${language.additionalParams}`} />
     <TextAreaInput className="mt-2" bind:value={DBState.db.customModels[index].params} placeholder={`temperature=0.7
     max_tokens=2000
     reasoning_effort="high"

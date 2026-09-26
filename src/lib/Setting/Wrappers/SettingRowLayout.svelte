@@ -2,8 +2,7 @@
     import type { Snippet } from 'svelte';
     import type { SettingItem } from 'src/ts/setting/types';
     import { getLabel } from 'src/ts/setting/utils';
-    import { language } from 'src/lang';
-    import Help from 'src/lib/Others/Help.svelte';
+    import SettingFieldLabel from './SettingFieldLabel.svelte';
 
     interface Props {
         item: SettingItem;
@@ -15,15 +14,6 @@
     }
 
     let { item, control, wideControl = false }: Props = $props();
-
-    // Inline help text under the label (replaces the tooltip icon in row mode).
-    const helpText = $derived(
-        item.helpKey ? (language.help as any)[item.helpKey] as string | undefined : undefined
-    );
-    // Only the lead paragraph is shown inline; markdown detail blocks after a
-    // blank line (option lists etc.) stay reachable through the help icon.
-    const helpLead = $derived(helpText?.split('\n\n')[0].replace(/\*\*|`/g, ''));
-    const helpHasMore = $derived(!!helpText && helpText.includes('\n\n'));
 </script>
 
 <!-- data-setting-id: anchor for settings search deep-links (searchIndex.ts) -->
@@ -32,12 +22,12 @@
     data-setting-id={item.id}
 >
     <div class="flex flex-col min-w-0">
-        <span class="text-sm text-textcolor">
-            {getLabel(item)}
-            {#if item.showExperimental}<Help key="experimental"/>{/if}
-            {#if item.helpKey && (item.helpUnrecommended || helpHasMore)}<Help key={item.helpKey as any} unrecommended={item.helpUnrecommended ?? false}/>{/if}
-        </span>
-        {#if helpLead}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead}</p>{/if}
+        <SettingFieldLabel
+            label={getLabel(item)}
+            helpKey={item.helpKey}
+            helpUnrecommended={item.helpUnrecommended}
+            showExperimental={item.showExperimental}
+        />
     </div>
     <div class="shrink-0 {wideControl ? 'w-full sm:w-auto' : ''}">{@render control?.()}</div>
 </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
@@ -110,13 +111,6 @@
     })
 </script>
 
-<!-- Field label + lead help sentence, matching the row-layout settings grammar. -->
-{#snippet fieldLabel(label: string, helpKey: string)}
-    <span class="text-sm text-textcolor">{label}</span>
-    {#if (language.help as any)[helpKey]}
-        <span class="text-xs text-textcolor2">{((language.help as any)[helpKey] as string).split('\n\n')[0].replace(/\*\*|`/g, '')}</span>
-    {/if}
-{/snippet}
 
 <SettingPage title={language.persona}>
     <FolderedList
@@ -171,23 +165,23 @@
                     {/if}
                 </button>
                 <div class="flex grow flex-col min-w-0 basis-64 gap-4">
-                    <label class="flex flex-col gap-1">
-                        {@render fieldLabel(language.name, 'personaName')}
+                    <div class="flex flex-col gap-1">
+                        <SettingFieldLabel label={language.name} helpKey="personaName" />
                         <ShInput className="mt-1" placeholder="User" bind:value={DBState.db.username}/>
-                    </label>
+                    </div>
                     {#if DBState.db.personaNote}
-                        <label class="flex flex-col gap-1">
-                            {@render fieldLabel(language.note, 'personaNote')}
+                        <div class="flex flex-col gap-1">
+                            <SettingFieldLabel label={language.note} helpKey="personaNote" />
                             <ShInput className="mt-1" bind:value={DBState.db.userNote} placeholder={`Put a unique identifier for this persona here.\nExample: [Alternate Hunters persona]`} />
-                        </label>
+                        </div>
                     {/if}
                     <div class="flex flex-col gap-1">
-                        {@render fieldLabel(language.description, 'personaDescription')}
+                        <SettingFieldLabel label={language.description} helpKey="personaDescription" />
                         <TextAreaInput className="mt-1" autocomplete="off" bind:value={DBState.db.personaPrompt} placeholder={`Put the description of this persona here.\nExample: [<user> is a 20 year old girl.]`} />
                     </div>
                     <div class="flex items-center justify-between gap-3">
                         <div class="flex flex-col min-w-0">
-                            {@render fieldLabel(language.largePortrait, 'personaLargePortrait')}
+                            <SettingFieldLabel label={language.largePortrait} helpKey="personaLargePortrait" />
                         </div>
                         <ShSwitch
                             checked={!!DBState.db.personas[DBState.db.selectedPersona].largePortrait}

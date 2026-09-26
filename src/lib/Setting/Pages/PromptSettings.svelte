@@ -1,4 +1,5 @@
 <script lang="ts">
+    import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
     import { ArrowLeft, PlusIcon, TrashIcon, TriangleAlertIcon } from "@lucide/svelte";
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
@@ -134,15 +135,7 @@
     function field(id: string, label: string, helpKey?: string, helpUnrecommended = false): SettingItem {
         return { id: `promptSettings.${id}`, type: 'custom', fallbackLabel: label, helpKey, helpUnrecommended }
     }
-
-    function helpLead(key: string): string | undefined {
-        return ((language.help as any)[key] as string | undefined)?.split('\n\n')[0].replace(/\*\*|`/g, '')
-    }
 </script>
-{#snippet fieldLabel(label: string, helpKey: string)}
-    <span class="text-sm text-textcolor">{label}</span>
-    {#if helpLead(helpKey)}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead(helpKey)}</p>{/if}
-{/snippet}
 
 {#snippet switchRow(id: string, label: string, get: () => boolean | undefined, set: (v: boolean) => void)}
     <SettingRowLayout item={field(id, label)}>
@@ -293,27 +286,27 @@
     </SettingRowLayout>
 
     <div class="py-3 border-t border-darkborderc">
-        {@render fieldLabel(language.customPromptTemplateToggle, 'customPromptTemplateToggle')}
+        <SettingFieldLabel label={language.customPromptTemplateToggle} helpKey="customPromptTemplateToggle" />
         <TextAreaInput className="mt-2" bind:value={DBState.db.customPromptTemplateToggle}/>
     </div>
     <div class="py-3 border-t border-darkborderc">
-        {@render fieldLabel(language.defaultVariables, 'defaultVariables')}
+        <SettingFieldLabel label={language.defaultVariables} helpKey="defaultVariables" />
         <TextAreaInput className="mt-2" bind:value={DBState.db.templateDefaultVariables}/>
     </div>
     <div class="py-3 border-t border-darkborderc">
-        {@render fieldLabel(language.predictedOutput, 'predictedOutput')}
+        <SettingFieldLabel label={language.predictedOutput} helpKey="predictedOutput" />
         <TextAreaInput className="mt-2" bind:value={DBState.db.OAIPrediction}/>
     </div>
     <div class="py-3 border-t border-darkborderc">
-        {@render fieldLabel(language.autoSuggest, 'autoSuggest')}
+        <SettingFieldLabel label={language.autoSuggest} helpKey="autoSuggest" />
         <TextAreaInput className="mt-2" bind:value={DBState.db.autoSuggestPrompt} placeholder={defaultAutoSuggestPrompt}/>
     </div>
     <div class="py-3 border-t border-darkborderc">
-        {@render fieldLabel(language.groupInnerFormat, 'groupInnerFormat')}
+        <SettingFieldLabel label={language.groupInnerFormat} helpKey="groupInnerFormat" />
         <TextAreaInput className="mt-2" placeholder={`<{{char}}\'s Message>\n{{slot}}\n</{{char}}\'s Message>`} bind:value={DBState.db.groupTemplate}/>
     </div>
     <div class="py-3 border-t border-darkborderc">
-        {@render fieldLabel(language.systemContentReplacement, 'systemContentReplacement')}
+        <SettingFieldLabel label={language.systemContentReplacement} helpKey="systemContentReplacement" />
         <TextAreaInput className="mt-2" bind:value={DBState.db.systemContentReplacement}/>
     </div>
     <SettingRowLayout item={field('systemRoleReplacement', language.systemRoleReplacement, 'systemRoleReplacement')}>
@@ -326,7 +319,7 @@
     </SettingRowLayout>
     {#if DBState.db.jsonSchemaEnabled}
         <div class="py-3 border-t border-darkborderc">
-            {@render fieldLabel(language.jsonSchema, 'jsonSchema')}
+            <SettingFieldLabel label={language.jsonSchema} helpKey="jsonSchema" />
             <TextAreaInput className="mt-2" bind:value={DBState.db.jsonSchema}/>
         </div>
         <SettingRowLayout item={field('extractJson', language.extractJson, 'extractJson')} wideControl>

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
 
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
@@ -108,16 +109,7 @@
     function f(id: string, label: string, helpKey?: string): SettingItem {
         return { id: `bot.${id}`, type: 'custom', fallbackLabel: label, helpKey }
     }
-
-    function helpLead(key: string | undefined): string | undefined {
-        if (!key) return undefined
-        return ((language.help as any)[key] as string | undefined)?.split('\n\n')[0].replace(/\*\*|`/g, '')
-    }
 </script>
-{#snippet fieldLabel(label: string, helpKey: string | undefined)}
-    <span class="text-sm text-textcolor">{label}</span>
-    {#if helpLead(helpKey)}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead(helpKey)}</p>{/if}
-{/snippet}
 
 <SettingPage title={language.chatBot}>
 <ShAlert variant="info" className="mb-4">
@@ -149,12 +141,12 @@
         {/snippet}
     </ShAlert>
 <div class="py-3 border-t border-darkborderc flex flex-col gap-2">
-        {@render fieldLabel(language.model, 'model')}
+        <SettingFieldLabel label={language.model} helpKey="model" />
     <ModelList bind:value={DBState.db.aiModel}/>
     </div>
 
 <div class="py-3 border-t border-darkborderc flex flex-col gap-2">
-        {@render fieldLabel(language.submodel, 'submodel')}
+        <SettingFieldLabel label={language.submodel} helpKey="submodel" />
     <ModelList bind:value={DBState.db.subModel}/>
     </div>
 
@@ -282,7 +274,7 @@
 </SettingRowLayout>
         {/if}
 
-        <div class="pt-3 border-t border-darkborderc flex flex-col mb-2">{@render fieldLabel(`NanoGPT ${language.model}`, 'nanogptModelMode')}</div>
+        <div class="pt-3 border-t border-darkborderc flex flex-col mb-2"><SettingFieldLabel label={`NanoGPT ${language.model}`} helpKey="nanogptModelMode" /></div>
         <SegmentedControl
             bind:value={nanogptInputMode}
             options={[
@@ -320,7 +312,7 @@
     {#snippet control()}<TextInput className="sm:w-64 h-8" size="sm" padding fullwidth hideText={DBState.db.hideApiKey} bind:value={DBState.db.openrouterKey}/>{/snippet}
 </SettingRowLayout>
 
-        <div class="pt-3 border-t border-darkborderc flex flex-col mb-2">{@render fieldLabel(`OpenRouter ${language.model}`, 'openrouterModel')}</div>
+        <div class="pt-3 border-t border-darkborderc flex flex-col mb-2"><SettingFieldLabel label={`OpenRouter ${language.model}`} helpKey="openrouterModel" /></div>
         {#await getOpenRouterModels()}
             <ModelGrid bind:value={DBState.db.openrouterRequestModel} pinnedItems={openrouterPinnedItems} loading={true} />
         {:then m}
@@ -406,7 +398,7 @@
 
     {#if DBState.db.aiModel === 'echo_model' || DBState.db.subModel === 'echo_model'}
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Echo Message`, 'echoMessage')}
+    <SettingFieldLabel label={`Echo Message`} helpKey="echoMessage" />
     <TextAreaInput className="mt-2" bind:value={DBState.db.echoMessage} placeholder={"The message you want to receive as the bot's response\n(e.g., Lumi tilts her head, her white hair sliding down as her pretty green and aqua eyes sparkle…)"}/>
 </div>
         <SettingRowLayout item={f('bot1', `Echo Delay (Seconds)`, 'echoDelay')}>
@@ -461,6 +453,7 @@
 
     <div class="pt-2">
     <ShAccordion name={language.customFlags} variant="card" bodyClass="[&>*:first-child]:border-t-0">
+        {#snippet extras()}<Help key="customFlags"/>{/snippet}
         <SettingRowLayout item={f('bot39', `${language.enableCustomFlags}`, 'enableCustomFlags')}>
     {#snippet control()}<ShSwitch checked={!!DBState.db.enableCustomFlags} onCheckedChange={(v) => DBState.db.enableCustomFlags = v} />{/snippet}
 </SettingRowLayout>
@@ -510,31 +503,31 @@
     <SettingRenderer items={allBasicParameterItems} {modelInfo} {subModelInfo} layout="block" />
     {#if DBState.db.aiModel === 'textgen_webui' || DBState.db.aiModel === 'mancer' || DBState.db.aiModel.startsWith('local_') || DBState.db.aiModel.startsWith('hf:::')}
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Repetition Penalty`, undefined)}
+    <SettingFieldLabel label={`Repetition Penalty`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={1} max={1.5} step={0.01} bind:value={DBState.db.ooba.repetition_penalty} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Length Penalty`, undefined)}
+    <SettingFieldLabel label={`Length Penalty`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={-5} max={5} step={0.05} bind:value={DBState.db.ooba.length_penalty} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top K`, undefined)}
+    <SettingFieldLabel label={`Top K`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={100} step={1} bind:value={DBState.db.ooba.top_k} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top P`, undefined)}
+    <SettingFieldLabel label={`Top P`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.ooba.top_p} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Typical P`, undefined)}
+    <SettingFieldLabel label={`Typical P`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.ooba.typical_p} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top A`, undefined)}
+    <SettingFieldLabel label={`Top A`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.ooba.top_a} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`No Repeat n-gram Size`, undefined)}
+    <SettingFieldLabel label={`No Repeat n-gram Size`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={20} step={1} bind:value={DBState.db.ooba.no_repeat_ngram_size} />
 </div>
         <SettingRowLayout item={f('bot40', `Do Sample`)}>
@@ -606,55 +599,55 @@
 </SettingRowLayout>
         </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top P`, undefined)}
+    <SettingFieldLabel label={`Top P`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.NAIsettings.topP} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top K`, undefined)}
+    <SettingFieldLabel label={`Top K`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={100} step={1} bind:value={DBState.db.NAIsettings.topK} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top A`, undefined)}
+    <SettingFieldLabel label={`Top A`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.NAIsettings.topA} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Tailfree Sampling`, undefined)}
+    <SettingFieldLabel label={`Tailfree Sampling`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.001} bind:value={DBState.db.NAIsettings.tailFreeSampling} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Typical P`, undefined)}
+    <SettingFieldLabel label={`Typical P`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.NAIsettings.typicalp} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Repetition Penalty`, undefined)}
+    <SettingFieldLabel label={`Repetition Penalty`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={3} step={0.01} bind:value={DBState.db.NAIsettings.repetitionPenalty} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Repetition Penalty Range`, undefined)}
+    <SettingFieldLabel label={`Repetition Penalty Range`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={8192} step={1} bind:value={DBState.db.NAIsettings.repetitionPenaltyRange} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Repetition Penalty Slope`, undefined)}
+    <SettingFieldLabel label={`Repetition Penalty Slope`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={10} step={0.01} bind:value={DBState.db.NAIsettings.repetitionPenaltySlope} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Frequency Penalty`, undefined)}
+    <SettingFieldLabel label={`Frequency Penalty`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={-2} max={2} step={0.01} bind:value={DBState.db.NAIsettings.frequencyPenalty} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Presence Penalty`, undefined)}
+    <SettingFieldLabel label={`Presence Penalty`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={-2} max={2} step={0.01} bind:value={DBState.db.NAIsettings.presencePenalty} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Mirostat LR`, undefined)}
+    <SettingFieldLabel label={`Mirostat LR`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.NAIsettings.mirostat_lr} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Mirostat Tau`, undefined)}
+    <SettingFieldLabel label={`Mirostat Tau`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={6} step={0.01} bind:value={DBState.db.NAIsettings.mirostat_tau} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Cfg Scale`, undefined)}
+    <SettingFieldLabel label={`Cfg Scale`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={1} max={3} step={0.01} bind:value={DBState.db.NAIsettings.cfg_scale} />
 </div>
 
@@ -663,31 +656,31 @@
             These parameters follow NovelList's own definitions. See the official NovelList documentation for details.
         </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top P`, undefined)}
+    <SettingFieldLabel label={`Top P`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={2} step={0.01} bind:value={DBState.db.ainconfig.top_p} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Reputation Penalty`, undefined)}
+    <SettingFieldLabel label={`Reputation Penalty`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={2} step={0.01} bind:value={DBState.db.ainconfig.rep_pen} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Reputation Penalty Range`, undefined)}
+    <SettingFieldLabel label={`Reputation Penalty Range`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={2048} step={1} bind:value={DBState.db.ainconfig.rep_pen_range} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Reputation Penalty Slope`, undefined)}
+    <SettingFieldLabel label={`Reputation Penalty Slope`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={10} step={0.1} bind:value={DBState.db.ainconfig.rep_pen_slope} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top K`, undefined)}
+    <SettingFieldLabel label={`Top K`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={1} max={500} step={1} bind:value={DBState.db.ainconfig.top_k} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Top A`, undefined)}
+    <SettingFieldLabel label={`Top A`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.ainconfig.top_a} />
 </div>
         <div class="py-3 border-t border-darkborderc flex flex-col">
-    {@render fieldLabel(`Typical P`, undefined)}
+    <SettingFieldLabel label={`Typical P`} />
     <ShSlider className="mt-2" inputWidth="w-16" min={0} max={1} step={0.01} bind:value={DBState.db.ainconfig.typical_p} />
 </div>
     {:else}

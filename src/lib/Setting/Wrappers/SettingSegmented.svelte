@@ -5,6 +5,7 @@
     import SegmentedControl from 'src/lib/UI/GUI/SegmentedControl.svelte';
     import Help from 'src/lib/Others/Help.svelte';
     import { language } from 'src/lang';
+    import SettingFieldLabel from './SettingFieldLabel.svelte';
 
     interface Props {
         item: SettingItem;
@@ -39,10 +40,6 @@
             label: opt.labelKey ? ((language as any)[opt.labelKey] ?? opt.label ?? '') : (opt.label ?? '')
         })));
 
-    const helpLead = $derived(
-        item.helpKey ? ((language.help as any)[item.helpKey] as string | undefined)?.split('\n\n')[0].replace(/\*\*|`/g, '') : undefined
-    );
-
     // Reset value if current selection becomes hidden due to condition changes
     $effect(() => {
         const currentVal = untrack(() => localValue);
@@ -56,11 +53,12 @@
     <!-- Segments can be long ("Budget (Manual Tokens)"), so the control takes
          the full width under the row-style label + inline help. -->
     <div class="py-3 border-t border-darkborderc flex flex-col" data-setting-id={item.id}>
-        <span class="text-sm text-textcolor">
-            {getLabel(item)}
-            {#if item.showExperimental}<Help key="experimental"/>{/if}
-        </span>
-        {#if helpLead}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead}</p>{/if}
+        <SettingFieldLabel
+            label={getLabel(item)}
+            helpKey={item.helpKey}
+            helpUnrecommended={item.helpUnrecommended}
+            showExperimental={item.showExperimental}
+        />
         <SegmentedControl className="mt-2" size="sm" bind:value={localValue} options={processedOptions} />
     </div>
 {:else}

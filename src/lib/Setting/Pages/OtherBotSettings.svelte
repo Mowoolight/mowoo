@@ -1,4 +1,5 @@
 <script lang="ts">
+    import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
     import { language } from "src/lang";
@@ -169,15 +170,7 @@
     function f(id: string, label: string, helpKey?: string): SettingItem {
         return { id: `otherBots.${id}`, type: 'custom', fallbackLabel: label, helpKey }
     }
-
-    function helpLead(key: string): string | undefined {
-        return ((language.help as any)[key] as string | undefined)?.split('\n\n')[0].replace(/\*\*|`/g, '')
-    }
 </script>
-{#snippet fieldLabel(label: string, helpKey: string)}
-    <span class="text-sm text-textcolor">{label}</span>
-    {#if helpLead(helpKey)}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead(helpKey)}</p>{/if}
-{/snippet}
 
 <SettingPage title={language.otherBots}>
 <SettingTabs tabs={[
@@ -860,7 +853,7 @@
 </SettingRowLayout>
 
             <div class="py-3 border-t border-darkborderc flex flex-col gap-2">
-            {@render fieldLabel('Model', 'waveModel')}
+            <SettingFieldLabel label={'Model'} helpKey="waveModel" />
             <div class="flex gap-2 items-center">
                 <TextInput
                   className="h-8 grow"
@@ -887,7 +880,7 @@
             </SelectInput>
             </div>
 
-            <div class="pt-3 border-t border-darkborderc flex flex-col">{@render fieldLabel('LoRAs', 'waveLoras')}</div>
+            <div class="pt-3 border-t border-darkborderc flex flex-col"><SettingFieldLabel label={'LoRAs'} helpKey="waveLoras" /></div>
             {#if wavespeedModels.find(m => m.model_id === DBState.db.wavespeedImage.model)?.supportsLoras}
                 {#each wavespeedLoras as lora, index}
                     <div class="flex flex-col gap-2 mt-2">
@@ -911,7 +904,7 @@
                 </p>
             {/if}
 
-            <div class="pt-3 border-t border-darkborderc flex flex-col">{@render fieldLabel('Image Reference', 'waveImageReference')}</div>
+            <div class="pt-3 border-t border-darkborderc flex flex-col"><SettingFieldLabel label={'Image Reference'} helpKey="waveImageReference" /></div>
             {#if wavespeedModels.find(m => m.model_id === DBState.db.wavespeedImage.model)?.supportsImageInput}
                 <SelectInput className="mt-2 mb-2 w-full sm:w-48" size="sm" bind:value={DBState.db.wavespeedImage.reference_mode}>
                     <OptionInput value="" >None</OptionInput>

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
     import { language } from "src/lang";
     import SettingPage from "src/lib/UI/GUI/SettingPage.svelte";
     import SettingTabs from "src/lib/UI/GUI/SettingTabs.svelte";
@@ -178,16 +179,8 @@
     function field(id: string, label: string, helpKey?: string): SettingItem {
         return { id: `memory.${id}`, type: 'custom', fallbackLabel: label, helpKey }
     }
-
-    function helpLead(key: string): string | undefined {
-        return ((language.help as any)[key] as string | undefined)?.split('\n\n')[0]
-    }
 </script>
 
-{#snippet textareaField(label: string, helpKey: string)}
-    <span class="text-sm text-textcolor">{label}</span>
-    {#if helpLead(helpKey)}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead(helpKey)}</p>{/if}
-{/snippet}
 
 <!-- Ratios display at 2 decimals like the legacy SliderInput (fixed=2); the
      ratio guards above can leave float noise such as 0.09999999999999998. -->
@@ -350,11 +343,11 @@
                 {/snippet}
             </SettingRowLayout>
             <div class="py-3 border-t border-darkborderc">
-                {@render textareaField(language.summarizationPrompt, 'summarizationPrompt')}
+                <SettingFieldLabel label={language.summarizationPrompt} helpKey="summarizationPrompt" />
                 <TextAreaInput className="mt-2" placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder} bind:value={settings.summarizationPrompt} />
             </div>
             <div class="py-3 border-t border-darkborderc">
-                {@render textareaField(language.reSummarizationPrompt, 'reSummarizationPrompt')}
+                <SettingFieldLabel label={language.reSummarizationPrompt} helpKey="reSummarizationPrompt" />
                 <TextAreaInput className="mt-2" placeholder={language.hypaV3Settings.supaMemoryPromptPlaceHolder} bind:value={settings.reSummarizationPrompt} />
             </div>
             {#await getMaxMemoryRatio() then maxMemoryRatio}

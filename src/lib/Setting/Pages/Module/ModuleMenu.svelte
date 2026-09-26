@@ -1,4 +1,5 @@
 <script lang="ts">
+    import SettingFieldLabel from "src/lib/Setting/Wrappers/SettingFieldLabel.svelte";
     import { language } from "src/lang";
     import TextInput from "src/lib/UI/GUI/TextInput.svelte";
     import type { loreBook } from "src/ts/storage/database.svelte";
@@ -269,16 +270,8 @@
     function field(id: string, label: string, helpKey?: string): SettingItem {
         return { id: `module.${id}`, type: 'custom', fallbackLabel: label, helpKey }
     }
-
-    function helpLead(key: string): string | undefined {
-        return ((language.help as any)[key] as string | undefined)?.split('\n\n')[0].replace(/\*\*|`/g, '')
-    }
 </script>
 
-{#snippet fieldLabel(label: string, helpKey: string)}
-    <span class="text-sm text-textcolor">{label}</span>
-    {#if helpLead(helpKey)}<p class="text-xs text-textcolor2 mt-0.5 whitespace-pre-line">{helpLead(helpKey)}</p>{/if}
-{/snippet}
 
 <SettingTabs
     tabs={[
@@ -306,7 +299,7 @@
             {#snippet control()}<ShSwitch checked={!!currentModule.hideIcon} onCheckedChange={(v) => currentModule.hideIcon = v} />{/snippet}
         </SettingRowLayout>
         <div class="py-3 border-t border-darkborderc">
-            {@render fieldLabel(language.customPromptTemplateToggle, 'customPromptTemplateToggle')}
+            <SettingFieldLabel label={language.customPromptTemplateToggle} helpKey="customPromptTemplateToggle" />
             <TextAreaInput className="mt-2" bind:value={currentModule.customModuleToggle}/>
         </div>
     </div>
@@ -323,11 +316,11 @@
 
 {#if submenu === 2 && (Array.isArray(currentModule.regex))}
     <div class="flex flex-col">
-        {@render fieldLabel(language.backgroundHTML, 'moduleBackgroundEmbedding')}
+        <SettingFieldLabel label={language.backgroundHTML} helpKey="moduleBackgroundEmbedding" />
         <TextAreaInput bind:value={currentModule.backgroundEmbedding} className="mt-2" placeholder={language.backgroundHTML}/>
     </div>
     <div class="flex flex-col py-3 mt-3 border-t border-darkborderc">
-        {@render fieldLabel(language.regexScript, 'moduleRegexList')}
+        <SettingFieldLabel label={language.regexScript} helpKey="moduleRegexList" />
         <RegexList bind:value={currentModule.regex}/>
         <div class="mt-2 flex gap-1">
             <ShButton variant="ghost" size="icon-sm" aria-label="Add" onclick={() => {
@@ -353,7 +346,7 @@
             <span>{language.viewInAssetViewer}</span>
         </ShButton>
     {/if}
-    <div class="mb-2 flex flex-col">{@render fieldLabel(language.additionalAssets, 'moduleAdditionalAssets')}</div>
+    <div class="mb-2 flex flex-col"><SettingFieldLabel label={language.additionalAssets} helpKey="moduleAdditionalAssets" /></div>
     <div class="w-full max-w-full border border-selected rounded-md p-2">
         <table class="contain w-full max-w-full tabler mt-2">
             <tbody>
