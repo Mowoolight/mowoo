@@ -1347,8 +1347,10 @@ interface RisuaiPluginAPI {
     getChatFromIndex(characterIndex: number, chatIndex: number): Promise<any|null>;
 
     /**
-     * Parses Risu CBS macros in text with the selected/current character context.
-     * Set processRegex to also apply editprocess regex scripts after CBS parsing.
+     * Parses Risu CBS macros using the currently selected character and active chat.
+     * Set processRegex to also run the editprocess script pipeline after CBS parsing.
+     * The editprocess pipeline can invoke plugin script handlers and action scripts,
+     * which may modify the active chat.
      * @param text - Text containing CBS macros
      * @param options - Parser context options
      * @returns Parsed text
@@ -1362,15 +1364,14 @@ interface RisuaiPluginAPI {
      * ```
      */
     parseRisuChat(text: string, options?: {
-        /** Character index to use. Defaults to the selected character. */
-        characterIndex?: number;
-        /** Chat index to use as the current chat context. Defaults to the character's current chat. */
-        chatIndex?: number;
-        /** Message index used by chat-aware CBS macros. Defaults to -1. */
+        /** Existing message index used by chat-aware CBS macros. Defaults to -1. */
         messageIndex?: number;
         /** Message role used by role-aware CBS macros. */
         role?: string;
-        /** Apply editprocess regex scripts after CBS parsing. */
+        /**
+         * Run the editprocess script pipeline after CBS parsing.
+         * This can invoke plugin handlers and action scripts that modify the active chat.
+         */
         processRegex?: boolean;
         /** Enable chat variable writes from CBS macros. */
         runVar?: boolean;

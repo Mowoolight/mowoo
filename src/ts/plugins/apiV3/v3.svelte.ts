@@ -1070,8 +1070,6 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             return null;
         },
         parseRisuChat: async (text:string, options?:{
-            characterIndex?: number
-            chatIndex?: number
             messageIndex?: number
             role?: string
             processRegex?: boolean
@@ -1081,25 +1079,25 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
             cbsConditions?: CbsConditions
         }) => {
             const db = DBState.db
-            const charIds = Object.keys(db.characters);
-            const selectedChar = get(selectedCharID) as string | number;
-            const charId = typeof options?.characterIndex === 'number'
-                ? charIds[options.characterIndex]
-                : db.characters[selectedChar as string]
-                    ? selectedChar as string
-                    : charIds[Number(selectedChar)];
-            const char = charId ? db.characters[charId] : null;
-            const parserChar = char && typeof options?.chatIndex === 'number' && char.chats?.[options.chatIndex]
-                ? { ...char, chatPage: options.chatIndex }
-                : char;
+            const char = db.characters[get(selectedCharID)];
+            if(!char){
+                throw new Error('No character selected');
+            }
+            const chat = char.chats?.[char.chatPage];
+            if(!chat){
+                throw new Error('No active chat found');
+            }
             const chatID = options?.messageIndex ?? -1;
+            if(!Number.isInteger(chatID) || chatID < -1 || chatID >= chat.message.length){
+                throw new Error(`Invalid messageIndex: ${chatID}`);
+            }
             const role = options?.role;
             const cbsConditions:CbsConditions = {
                 ...(role ? { chatRole: role } : {}),
                 ...(options?.cbsConditions ?? {}),
             };
             const parsed = risuChatParser(text ?? '', {
-                chara: parserChar ?? undefined,
+                chara: char,
                 chatID,
                 role,
                 runVar: options?.runVar,
@@ -1108,11 +1106,11 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                 cbsConditions,
             });
 
-            if(!options?.processRegex || !char){
+            if(!options?.processRegex){
                 return parsed;
             }
 
-            return (await processScriptFull(parserChar, parsed, 'editprocess', chatID, cbsConditions)).data;
+            return (await processScriptFull(char, parsed, 'editprocess', chatID, cbsConditions)).data;
         },
         setChatToIndex: (characterIndex:number, chatIndex:number, chat:any) => {
             const db = DBState.db
