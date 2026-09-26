@@ -2426,6 +2426,16 @@ export const languageEnglish = {
         cacheHit: "Cache hit · {n} tokens",
     },
 
+    settingActionView: "View",
+    settingActionExport: "Export",
+    settingActionImport: "Import",
+    settingActionClear: "Clear",
+    showStatistics: "Usage Statistics",
+    showStatisticsDesc: "Shows the accumulated usage statistics as a table.",
+    exportSettingsReport: "Export Settings for Bug Report",
+    exportSettingsReportDesc: "Downloads your settings without API keys, characters and other private data, and copies them to the clipboard.",
+    banCharactersetDesc: "Automatically regenerates a response that contains any of the selected scripts.",
+    inlayCompressAllDesc: "Recompresses every stored inlay image to reduce storage usage.",
 } satisfies I18nTranslation;
 
 type I18nTranslationFunction = (...args: any[]) => string;

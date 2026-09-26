@@ -6,5 +6,5 @@
 </script>
 
 <SettingPage title={language.advancedSettings}>
-<SettingRenderer items={advancedSettingsItems} />
+<SettingRenderer items={advancedSettingsItems} layout="row" />
 </SettingPage>

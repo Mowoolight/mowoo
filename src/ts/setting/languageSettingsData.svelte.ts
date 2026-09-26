@@ -271,6 +271,7 @@ export const languageSettingsItems: SettingItem[] = [
         classes: 'mt-4',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
         options: {
+            buttonLabelKey: 'settingActionExport',
             onClick: async () => {
                 alertWait(language.loading);
                 try {
@@ -297,6 +298,7 @@ export const languageSettingsItems: SettingItem[] = [
         classes: 'mt-2',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
         options: {
+            buttonLabelKey: 'settingActionImport',
             onClick: async () => {
                 try {
                     const files = await selectFileByDom(['json']);
@@ -348,6 +350,8 @@ export const languageSettingsItems: SettingItem[] = [
         classes: 'mt-2',
         condition: (ctx) => !!ctx.db.translator && ctx.db.translatorType === 'llm',
         options: {
+            buttonLabelKey: 'settingActionClear',
+            buttonVariant: 'destructive',
             onClick: async () => {
                 try {
                     const confirmed = await alertConfirm(language.clearTranslationCacheConfirm);
