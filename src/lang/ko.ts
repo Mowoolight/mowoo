@@ -61,6 +61,10 @@ export const languageKorean = {
       "이 채팅은 아직 생성 중이에요. 완료되거나 중지한 뒤 다시 보내주세요.",
     otherChatGenerating:
       "다른 채팅에서 생성이 진행 중이에요. 그 채팅이 완료되거나 중지된 뒤 다시 보내주세요.",
+    otherChatGenerationStopConfirm:
+      "다른 채팅에서 3분 넘게 생성 중이라 멈췄을 수 있어요. 그 생성을 중지하고 여기서 보낼 수 있게 할까요?",
+    generationForceReleased:
+      "응답이 스스로 멈추지 않아 생성 상태를 강제로 정리했어요. 다시 보낼 수 있어요.",
     assetManifestConflictTitle: "다른 세션에서 에셋 목록이 변경되었습니다",
     assetManifestConflictDesc:
       "최신 에셋 페이지를 다시 불러왔습니다. 내용을 확인한 뒤 편집을 다시 시도해주세요.",
