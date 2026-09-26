@@ -530,7 +530,13 @@
             if (relatedTarget && blockButtonWrapper?.contains(relatedTarget)) {
                 return;
             }
-            
+
+            // The button sits above its block; for the first block that zone is
+            // outside bodyRoot, so leaving upward toward the button must not hide it.
+            if (currentHoveredBlock && isMouseInButtonZone(e.clientX, e.clientY, currentHoveredBlock)) {
+                return;
+            }
+
             hideBlockButton();
         };
 
