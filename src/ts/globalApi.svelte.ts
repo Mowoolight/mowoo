@@ -5,7 +5,7 @@ import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
-import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
+import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, claimLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { recordDbTransferSize } from "./transferSize";
 import { newSaveTiming, recordSaveSample, type SaveOutcome, type SaveTiming } from "./storage/saveMetrics";
 import { loadPlugins } from "./plugins/plugins.svelte";
@@ -3405,18 +3405,18 @@ export function changeChatTo(IdOrIndex: string | number) {
         if(newChat._placeholder){
             const capturedIndex = index
             let cancelled = false
-            loadingOverlayStore.set({ active: true, text: language.loading ?? '', onCancel: () => {
+            const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
                 cancelled = true
                 chatDeselected.set(true)
-                loadingOverlayStore.set({ active: false, text: '', onCancel: null })
-            }})
+                releaseOverlay()
+            })
             void ensureChatHydrated(char.chats, capturedIndex, char.chaId).then((hydrated) => {
                 if(cancelled) return
                 if(hydrated && char.chatPage === capturedIndex) loadTogglesFromChat(hydrated)
             }).catch((e) => {
                 console.error('[changeChatTo] hydration failed:', e)
             }).finally(() => {
-                if(!cancelled) loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+                if(!cancelled) releaseOverlay()
             })
         } else {
             loadTogglesFromChat(newChat)
