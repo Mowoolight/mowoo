@@ -1653,15 +1653,18 @@ export async function saveDb() {
                     return
                 }
                 savetrys += 1
-                if (savetrys > 4) {
-                    alertError(error)
-                    savetrys = 0
-                }
-                else {
-                    console.error(error)
+                console.error(error)
+                if (savetrys < 5) {
                     await sleep(Math.min(500 * savetrys, 3000))
-                    changed = true
+                } else {
+                    // Keep retrying: the changes are requeued, but nothing
+                    // else would start another save until the next edit.
+                    // The wait runs outside saveInFlight so flushSaves is not
+                    // held up by it, and the alert shows once per failure run.
+                    if (savetrys === 5) alertError(error)
+                    saveRetryAt = Date.now() + Math.min(5000 * (savetrys - 4), 30000)
                 }
+                changed = true
             } finally {
                 saving.state = false
                 saveInFlight = null
@@ -1703,12 +1706,14 @@ export async function saveDb() {
     }
 
     let savetrys = 0
+    // After repeated failures the loop waits until this time before retrying.
+    let saveRetryAt = 0
 
     let consecutiveRetries = 0
 
     const MAX_CONSECUTIVE_SAVE_RETRIES = 5
     while (true) {
-        if (!changed) {
+        if (!changed || Date.now() < saveRetryAt) {
             await sleep(200)
             continue
         }
