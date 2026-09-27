@@ -1777,7 +1777,12 @@ function addFetchLogInGlobalFetch(response: any, success: boolean, url: string, 
     if (!arg.logCategory) return
     const stringify = (value: unknown) => {
         try {
-            return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+            if (typeof value === 'string') return value
+            // Raw responses (images, audio) are byte arrays: JSON.stringify
+            // writes one key per byte, turning 1MB into tens of MB of text.
+            if (value instanceof ArrayBuffer) return `[ArrayBuffer: ${value.byteLength} bytes]`
+            if (ArrayBuffer.isView(value)) return `[${value.constructor.name}: ${value.byteLength} bytes]`
+            return JSON.stringify(value, null, 2)
         } catch {
             return `${value}`
         }
