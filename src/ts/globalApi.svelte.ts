@@ -418,6 +418,7 @@ export let requiresFullEncoderReload = $state({
 let requestImmediateSaveImpl: ((options?: {
     forceFullWrite?: boolean
 }) => Promise<void> | void) = () => {}
+let flushSavesImpl: () => Promise<boolean> = async () => false
 let patchSyncBaseline: Database | null = null
 let activeSavePatcher: RisuSavePatcher | null = null
 
@@ -528,6 +529,14 @@ export function requestImmediateSave(options?: {
     return requestImmediateSaveImpl(options)
 }
 
+/**
+ * Resolves true once every change made before the call has reached the
+ * server; false when saving keeps failing (the changes stay queued).
+ */
+export function flushSaves(): Promise<boolean> {
+    return flushSavesImpl()
+}
+
 export function setPatchSyncBaseline(data: Database | null) {
     patchSyncBaseline = data ? safeStructuredClone(data) as Database : null
 }
@@ -537,6 +546,10 @@ export async function saveDb() {
     let gotChannel = false
     const sessionID = v4()
     let saveInFlight: Promise<void> | null = null
+    // Save attempts are numbered as they start; lastSavedSeq is the latest one
+    // that ended 'saved'. flushSaves compares the two.
+    let saveSeq = 0
+    let lastSavedSeq = 0
     const knownChatIdsByCharacter = new Map<string, Set<string>>(
         (getDatabase()?.characters ?? [])
             .filter(character => character?.chaId)
@@ -1483,11 +1496,13 @@ export async function saveDb() {
             return
         }
 
+        const seq = ++saveSeq
         saveInFlight = (async () => {
             saving.state = true
             try {
                 const result = await persistTrackedChanges(toSave, options)
                 if (result === 'saved') {
+                    lastSavedSeq = seq
                     savetrys = 0
                     consecutiveRetries = 0
                 } else if (result === 'retry') {
@@ -1541,9 +1556,38 @@ export async function saveDb() {
         })
     }
 
+    // A save attempt started after the caller's changes, and it succeeded.
+    // triggerSave alone cannot promise that: it hands back a save already in
+    // flight (which may predate the changes) and swallows failures.
+    flushSavesImpl = async () => {
+        await tick()
+        for (let attempt = 0; attempt < 6; attempt++) {
+            if (saveInFlight) {
+                await saveInFlight
+                continue
+            }
+            await reloadEncoderIfRequired()
+            const before = saveSeq
+            await triggerSave()
+            if (saveSeq === before) return true // nothing was tracked
+            if (lastSavedSeq === saveSeq) return true
+        }
+        return false
+    }
+
     let savetrys = 0
 
     let consecutiveRetries = 0
+
+    async function reloadEncoderIfRequired() {
+        if (!requiresFullEncoderReload.state) return
+        encoder = new RisuSaveEncoder()
+        await encoder.init(getDatabase(), {
+            compression: false,
+            skipRemoteSavingOnCharacters: false
+        })
+        requiresFullEncoderReload.state = false
+    }
 
     const MAX_CONSECUTIVE_SAVE_RETRIES = 5
     while (true) {
@@ -1552,14 +1596,7 @@ export async function saveDb() {
             continue
         }
         changed = false
-        if (requiresFullEncoderReload.state) {
-            encoder = new RisuSaveEncoder()
-            await encoder.init(getDatabase(), {
-                compression: false,
-                skipRemoteSavingOnCharacters: false
-            })
-            requiresFullEncoderReload.state = false
-        }
+        await reloadEncoderIfRequired()
         await triggerSave()
         await sleep(100)
     }

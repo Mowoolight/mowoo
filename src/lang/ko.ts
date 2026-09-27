@@ -621,11 +621,13 @@ export const languageKorean = {
   deactivateCharacterLostChats: (name: string, count: number, list: string) =>
       `"${name}"의 채팅 ${count}개는 서버에 내용이 남아 있지 않습니다. 이전 버전에서 유실된 채팅으로, 지금도 열면 빈 채팅으로 보입니다.\n\n${list}\n\n이 채팅들은 빈 채팅으로 보관됩니다. 비활성화할까요?`,
   deactivateCharacterFailed: "비활성화에 실패했습니다: ",
+  archiveSaveFailed: "최근 변경사항을 서버에 저장하지 못해, 변경사항을 지키기 위해 중단했습니다. 잠시 후 다시 시도하세요.",
   rebaseSkippedArchived: (names: string) =>
     `"${names}" 캐릭터가 다른 기기에서 비활성화되어 이 기기의 저장되지 않은 변경을 반영하지 못했습니다.`,
   activateCharacterConfirm: (name: string) => `"${name}" 캐릭터가 비활성화되어 있습니다. 활성화할까요?`,
   activateCharacterMissing: "보관된 캐릭터 데이터를 찾을 수 없어 활성화할 수 없습니다. 서버 로그와 스토리지 대시보드를 확인하세요.",
   activateCharacterFailed: "활성화에 실패했습니다: ",
+  activateCharacterAlreadyActive: "서버에서 이 캐릭터가 이미 활성 상태입니다. 페이지를 새로고침하세요.",
   activateCharacterRemoveStub: "이 캐릭터를 목록에서 제거할까요? (다른 데이터는 삭제되지 않습니다)",
   deactivatedBadge: "비활성화",
   exportCharacter: "캐릭터 엑스포트",

@@ -547,11 +547,13 @@ export const languageEnglish = {
     deactivateCharacterLostChats: (name: string, count: number, list: string) =>
         `${count} chat(s) of "${name}" have no content left on the server. They were lost in an earlier version and already open as empty chats.\n\n${list}\n\nThey will be kept as empty chats. Deactivate?`,
     deactivateCharacterFailed: "Deactivation failed: ",
+    archiveSaveFailed: "Recent changes could not be saved to the server, so it was stopped to keep them. Try again in a moment.",
     rebaseSkippedArchived: (names: string) =>
         `"${names}" was deactivated on another device, so this device's unsaved edits to it were discarded.`,
     activateCharacterConfirm: (name: string) => `"${name}" is deactivated. Activate it?`,
     activateCharacterMissing: "The stored character data could not be found, so it cannot be activated. Check the server log and the storage dashboard.",
     activateCharacterFailed: "Activation failed: ",
+    activateCharacterAlreadyActive: "the server already has this character active. Reload the page.",
     activateCharacterRemoveStub: "Remove this character from the list? (Nothing else is deleted.)",
     deactivatedBadge: "Deactivated",
     exportCharacter: "Export Character",
