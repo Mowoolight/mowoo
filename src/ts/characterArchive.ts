@@ -38,6 +38,15 @@ export function findArchivedStub(chaId: string): ArchivedCharacterStub | undefin
     return getArchivedStubs().find((s) => s?.chaId === chaId)
 }
 
+// The trash takes a character out of characterOrder (checkCharOrder), folder
+// included. Remember the folder so restoring can put it back.
+function markTrashed(stub: ArchivedCharacterStub, trashedAt: number) {
+    stub.trashedAt = trashedAt
+    const folder = DBState.db.characterOrder?.find((e) => typeof e !== 'string' && e?.data?.includes(stub.chaId))
+    if (folder && typeof folder !== 'string') stub.trashedFromFolder = folder.id
+    else delete stub.trashedFromFolder
+}
+
 export function isArchivedCharacter(chaId: string): boolean {
     return !!findArchivedStub(chaId)
 }
@@ -95,7 +104,7 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
         const idx = db.characters.findIndex((c) => c?.chaId === char.chaId)
         if (idx === -1) return false
         if (!Array.isArray(db.nodeOnlyArchivedCharacters)) db.nodeOnlyArchivedCharacters = []
-        if (arg.trash) stub.trashedAt = arg.trashedAt ?? Date.now()
+        if (arg.trash) markTrashed(stub, arg.trashedAt ?? Date.now())
         db.nodeOnlyArchivedCharacters.push(stub)
         const selectedIndex = get(selectedCharID)
         db.characters.splice(idx, 1)
@@ -164,7 +173,7 @@ function applyArchived(successes: { chaId: string; stub: any }[], trash: boolean
     const now = Date.now()
     for (const { chaId, stub } of successes) {
         if (!db.characters.some((c) => c?.chaId === chaId)) continue
-        if (trash) stub.trashedAt = now
+        if (trash) markTrashed(stub, now)
         if (!db.nodeOnlyArchivedCharacters.some((s) => s?.chaId === chaId)) db.nodeOnlyArchivedCharacters.push(stub)
         moved.add(chaId)
     }
@@ -311,7 +320,7 @@ export async function activateCharacter(chaId: string): Promise<number> {
 export function trashDeactivatedCharacter(chaId: string): boolean {
     const stub = findArchivedStub(chaId)
     if (!stub || stub.trashedAt) return false
-    stub.trashedAt = Date.now()
+    markTrashed(stub, Date.now())
     checkCharOrder()
     void requestImmediateSave()
     return true
@@ -322,6 +331,10 @@ export function restoreTrashedCharacter(chaId: string): boolean {
     const stub = findArchivedStub(chaId)
     if (!stub || !stub.trashedAt) return false
     delete stub.trashedAt
+    const folderId = stub.trashedFromFolder
+    delete stub.trashedFromFolder
+    const folder = folderId && DBState.db.characterOrder?.find((e) => typeof e !== 'string' && e?.id === folderId)
+    if (folder && typeof folder !== 'string' && !folder.data.includes(chaId)) folder.data.push(chaId)
     checkCharOrder()
     void requestImmediateSave()
     return true
