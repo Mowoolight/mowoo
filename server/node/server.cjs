@@ -323,19 +323,38 @@ async function flushPendingDb() {
     if (saveTimers[DB_HEX_KEY]) {
         clearTimeout(saveTimers[DB_HEX_KEY]);
         delete saveTimers[DB_HEX_KEY];
-        if (dbCache[DB_HEX_KEY]) {
-            await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
-        } else if (fullChatStore && fullChatStore.size > 0) {
-            // No stripped cache but chat store has data — merge and persist directly
-            const raw = kvGet('database/database.bin');
-            if (raw) {
-                const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                const fullDb = hydrateDatabaseForDisk(stripDatabaseForClient(dbObj, { reconcileManifests: true }));
-                kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+        try {
+            if (dbCache[DB_HEX_KEY]) {
+                await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+            } else if (fullChatStore && fullChatStore.size > 0) {
+                // No stripped cache but chat store has data — merge and persist directly
+                const raw = kvGet('database/database.bin');
+                if (raw) {
+                    const dbObj = normalizeJSON(await decodeRisuSave(raw));
+                    const fullDb = hydrateDatabaseForDisk(stripDatabaseForClient(dbObj, { reconcileManifests: true }));
+                    kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+                }
             }
+        } catch (error) {
+            // The timer was the only record that memory is ahead of disk.
+            retryDatabasePersistLater('flush');
+            throw error;
         }
         createBackupAndRotate();
     }
+}
+
+// A failed persist used to drop its timer, so nothing wrote the pending
+// changes again until the next edit (and a restart lost them). Try again
+// later while the cache still holds them. A guard that refused to persist
+// drops dbCache on purpose; then there is nothing to retry, and a no-op
+// "success" must not clear the failure it recorded.
+const PERSIST_RETRY_MS = process.env.POCKETRISU_PERSIST_RETRY_MS
+    ? Number(process.env.POCKETRISU_PERSIST_RETRY_MS)
+    : 30_000; // override for tests
+function retryDatabasePersistLater(source) {
+    if (!dbCache[DB_HEX_KEY] || saveTimers[DB_HEX_KEY]) return;
+    scheduleDatabasePersist(`${source}:retry`, PERSIST_RETRY_MS);
 }
 
 // ── /api/patch × plugin storage ─────────────────────────────────────────────
@@ -1023,11 +1042,12 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     }
 }
 
-function scheduleDatabasePersist(source = 'database') {
+function scheduleDatabasePersist(source = 'database', delay = SAVE_INTERVAL) {
     if (saveTimers[DB_HEX_KEY]) clearTimeout(saveTimers[DB_HEX_KEY]);
     const timer = setTimeout(() => {
         queueStorageOperation(async () => {
             if (saveTimers[DB_HEX_KEY] !== timer) return;
+            let failed = false;
             try {
                 await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
                 clearPersistFailure();
@@ -1036,11 +1056,13 @@ function scheduleDatabasePersist(source = 'database') {
             } catch (error) {
                 logger.error(`[${source}] Error saving database.bin:`, error);
                 recordPersistFailure(error, source);
+                failed = true;
             } finally {
                 if (saveTimers[DB_HEX_KEY] === timer) delete saveTimers[DB_HEX_KEY];
             }
+            if (failed) retryDatabasePersistLater(source);
         }).catch((error) => logger.error(`[${source}] Storage queue failed:`, error));
-    }, SAVE_INTERVAL);
+    }, delay);
     saveTimers[DB_HEX_KEY] = timer;
 }
 
@@ -4732,6 +4754,7 @@ app.post('/api/patch', async (req, res, next) => {
                 clearTimeout(saveTimers[filePath]);
             }
             saveTimers[filePath] = setTimeout(async () => {
+                let failed = false;
                 try {
                     if (decodedKey === 'database/database.bin') {
                         await persistDbCacheWithChats(filePath, decodedKey);
@@ -4759,9 +4782,11 @@ app.post('/api/patch', async (req, res, next) => {
                 } catch (error) {
                     logger.error(`[Patch] Error saving ${decodedKey}:`, error);
                     recordPersistFailure(error, `patch:${decodedKey}`);
+                    failed = true;
                 } finally {
                     delete saveTimers[filePath];
                 }
+                if (failed && decodedKey === 'database/database.bin') retryDatabasePersistLater('patch');
             }, SAVE_INTERVAL);
 
             // Update ETag after successful patch (based on stripped version)
@@ -6028,6 +6053,7 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 clearTimeout(saveTimers[DB_HEX_KEY]);
             }
             saveTimers[DB_HEX_KEY] = setTimeout(async () => {
+                let failed = false;
                 try {
                     // If dbCache has stripped DB, persist with merged chats
                     if (dbCache[DB_HEX_KEY]) {
@@ -6060,9 +6086,11 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 } catch (error) {
                     logger.error('[ChatContent] Error persisting chat:', error);
                     recordPersistFailure(error, 'chat-content');
+                    failed = true;
                 } finally {
                     delete saveTimers[DB_HEX_KEY];
                 }
+                if (failed) retryDatabasePersistLater('chat-content');
             }, SAVE_INTERVAL);
 
             res.json({ success: true });
