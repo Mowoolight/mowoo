@@ -1961,6 +1961,14 @@ function sessionAuthMiddleware(req, res, next) {
     res.status(401).end()
 }
 
+// Backup GETs are also opened as plain browser downloads (<a download>), which
+// carry the session cookie (HttpOnly, SameSite=Strict) but no risu-auth header.
+async function checkBackupDownloadAuth(req, res) {
+    const token = parseSessionCookie(req)
+    if (token && (sessions.get(token) ?? 0) > Date.now()) return true
+    return checkAuth(req, res)
+}
+
 // MIME detection by magic bytes (fallback when key has no extension)
 function detectMime(buf) {
     if (!buf || buf.length < 12) return 'application/octet-stream'
@@ -5211,7 +5219,7 @@ app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
 });
 
 app.get('/api/backup/export', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
+    if(!await checkBackupDownloadAuth(req, res)){ return; }
     try {
         // ?target=upstream excludes NodeOnly-only inlay namespaces (inlay/,
         // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
@@ -5754,7 +5762,7 @@ app.delete('/api/backup/server/:filename', async (req, res, next) => {
 
 // Download a server backup file
 app.get('/api/backup/server/download/:filename', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
+    if (!await checkBackupDownloadAuth(req, res)) { return; }
     try {
         const filename = req.params.filename;
         if (!BACKUP_FILENAME_REGEX.test(filename)) {

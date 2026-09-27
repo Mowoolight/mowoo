@@ -879,16 +879,35 @@ export class NodeStorage{
         return await da.json()
     }
 
-    async exportBackup(opts?: ExportBackupOptions): Promise<Response> {
+    /** Hands the backup export to the browser's own download manager. */
+    async downloadBackupExport(opts?: ExportBackupOptions): Promise<void> {
         const params = new URLSearchParams()
         if (opts?.target === 'upstream') params.set('target', 'upstream')
         if (opts?.mode === 'settings') params.set('mode', 'settings')
         if (opts?.moduleAssets === false) params.set('moduleAssets', '0')
         const query = params.toString()
-        const url = query ? `/api/backup/export?${query}` : '/api/backup/export'
-        const da = await this.authFetch(url)
-        if (da.status < 200 || da.status >= 300) throw `backup export error: ${da.status}`
-        return da
+        await this.startCookieDownload(query ? `/api/backup/export?${query}` : '/api/backup/export')
+    }
+
+    // A backup is streamed by the browser's download manager straight to disk
+    // instead of relayed through this tab (whose memory Safari fills with the
+    // whole file, and which non-secure origins route through a third-party
+    // page). The GET authenticates with the session cookie, so refresh it
+    // first. No x-session-id: registering a boot here would disturb the
+    // writer lock.
+    private async startCookieDownload(url: string): Promise<void> {
+        const res = await fetch('/api/session', {
+            method: 'POST',
+            headers: { 'risu-auth': await this.createAuth() },
+        })
+        if (!res.ok) throw new Error(`session refresh failed: ${res.status}`)
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = ''
+        anchor.style.display = 'none'
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
     }
 
     // Key names + sizes only; values stay on the server until read per key.
@@ -1129,11 +1148,8 @@ export class NodeStorage{
         if (da.status < 200 || da.status >= 300) throw new Error(`server backup delete error: ${da.status}`)
     }
 
-    async downloadServerBackup(filename: string): Promise<Response> {
-        const da = await this.authFetch(`/api/backup/server/download/${encodeURIComponent(filename)}`)
-        if (da.status === 404) throw new Error('Backup file not found')
-        if (da.status < 200 || da.status >= 300) throw new Error(`server backup download error: ${da.status}`)
-        return da
+    async downloadServerBackup(filename: string): Promise<void> {
+        await this.startCookieDownload(`/api/backup/server/download/${encodeURIComponent(filename)}`)
     }
 
     // ── Chat content (runtime lazy load) ────────────────────────────────────

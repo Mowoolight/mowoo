@@ -1181,6 +1181,7 @@ export const languageKorean = {
     "현재 탭이 비활성화되었습니다. OK를 누르면 탭이 다시 활성화됩니다.",
   sessionHandoffReload:
     "다른 기기에서 사용되어 최신 상태로 새로고침했어요.",
+  backupBrowserDownloadStarted: "브라우저 다운로드로 백업을 받기 시작했어요. 진행 상황과 완료는 브라우저의 다운로드 목록에서 확인하세요.",
   addCharacter: "캐릭터 추가",
   importFromRealm: "RisuRealm에서 고르기",
   importFromRealmDesc:
@@ -1892,7 +1893,6 @@ export const languageKorean = {
   serverBackupDownload: "다운로드",
   serverBackupDelete: "삭제",
   serverBackupRestoring: "서버 백업에서 복원 중...",
-  serverBackupDownloading: "백업 다운로드 중...",
   serverBackupDeleteConfirm: (filename: string) =>
     `"${filename}" 백업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
   serverBackupDeleteSuccess: "백업이 삭제되었습니다.",
