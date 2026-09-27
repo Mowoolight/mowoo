@@ -2122,6 +2122,15 @@ function createTimeoutController(timeoutMs) {
 // on purpose — thinking models stay silent for minutes before the first byte.
 const PROXY_IDLE_TIMEOUT_MS = 600000;
 
+// The client hanging up (Stop, closed tab) must cancel the upstream request.
+// Once the body streams, pipeline() tears the upstream down on its own; this
+// covers the wait before the first byte, which can run for minutes.
+function abortUpstreamOnClientClose(res, idle) {
+    res.on('close', () => {
+        if (!res.writableEnded) idle.abort();
+    });
+}
+
 function createIdleWatchdog(idleMs, totalSignal) {
     const controller = new AbortController();
     let timer = null;
@@ -2136,6 +2145,7 @@ function createIdleWatchdog(idleMs, totalSignal) {
     return {
         signal: controller.signal,
         idle: () => firedIdle,
+        abort: () => controller.abort(),
         touch: arm,
         // Resets the idle timer on every chunk that flows through the relay.
         transform: () => new Transform({
@@ -3241,6 +3251,7 @@ const reverseProxyFunc = async (req, res, next) => {
     // (localNetworkTimeoutSec up to 3600s) must not be undercut by it.
     const idleMs = Math.max(PROXY_IDLE_TIMEOUT_MS, timeoutMs || 0);
     const idle = createIdleWatchdog(idleMs, timeout.signal);
+    abortUpstreamOnClientClose(res, idle);
     let originalResponse;
     try {
     const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
@@ -3309,6 +3320,8 @@ const reverseProxyFunc = async (req, res, next) => {
     }
     catch (err) {
         if (err?.name === 'AbortError') {
+            // The client left; there is no one to send an error to.
+            if (res.destroyed) return;
             if (!res.headersSent) {
                 res.status(504).send({
                     error: idle.idle()
@@ -3353,6 +3366,7 @@ const reverseProxyFunc_get = async (req, res, next) => {
     // (localNetworkTimeoutSec up to 3600s) must not be undercut by it.
     const idleMs = Math.max(PROXY_IDLE_TIMEOUT_MS, timeoutMs || 0);
     const idle = createIdleWatchdog(idleMs, timeout.signal);
+    abortUpstreamOnClientClose(res, idle);
     let originalResponse;
     try {
     const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
@@ -3397,6 +3411,8 @@ const reverseProxyFunc_get = async (req, res, next) => {
     }
     catch (err) {
         if (err?.name === 'AbortError') {
+            // The client left; there is no one to send an error to.
+            if (res.destroyed) return;
             if (!res.headersSent) {
                 res.status(504).send({
                     error: idle.idle()
