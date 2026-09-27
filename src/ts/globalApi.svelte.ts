@@ -419,6 +419,7 @@ let requestImmediateSaveImpl: ((options?: {
     forceFullWrite?: boolean
 }) => Promise<void> | void) = () => {}
 let flushSavesImpl: () => Promise<boolean> = async () => false
+let trackCharacterForSaveImpl: (chaId: string) => void = () => {}
 let patchSyncBaseline: Database | null = null
 let activeSavePatcher: RisuSavePatcher | null = null
 
@@ -535,6 +536,11 @@ export function requestImmediateSave(options?: {
  */
 export function flushSaves(): Promise<boolean> {
     return flushSavesImpl()
+}
+
+/** Include this character in the next save even if nothing tracked it. */
+export function trackCharacterForSave(chaId: string) {
+    trackCharacterForSaveImpl(chaId)
 }
 
 export function setPatchSyncBaseline(data: Database | null) {
@@ -791,6 +797,16 @@ export async function saveDb() {
             for (const previousCharacterId of knownCharacterIds) {
                 if (!currentCharacterIdSet.has(previousCharacterId)) {
                     changeTracker.character = [previousCharacterId, ...changeTracker.character.filter((v) => v !== previousCharacterId)]
+                }
+            }
+            // A character added without being opened (an import) must be
+            // tracked too: chat bodies are uploaded only for tracked
+            // characters, so its chats would otherwise reach the server as
+            // bodiless stubs. Appended, so the selected-character slot at the
+            // head of the list keeps its meaning.
+            for (const currentCharacterId of currentCharacterIdSet) {
+                if (!knownCharacterIds.has(currentCharacterId) && !changeTracker.character.includes(currentCharacterId)) {
+                    changeTracker.character.push(currentCharacterId)
                 }
             }
             knownCharacterIds = currentCharacterIdSet
@@ -1573,6 +1589,10 @@ export async function saveDb() {
             if (lastSavedSeq === saveSeq) return true
         }
         return false
+    }
+
+    trackCharacterForSaveImpl = (chaId) => {
+        if (chaId && !changeTracker.character.includes(chaId)) changeTracker.character.push(chaId)
     }
 
     let savetrys = 0

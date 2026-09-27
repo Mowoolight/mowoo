@@ -17,11 +17,12 @@ import { get } from "svelte/store"
 import { language } from "src/lang"
 import { alertConfirm, alertError, notifySuccess } from "./alert"
 import { changeChar, deselectCharacter } from "./characters"
-import { checkCharOrder, flushSaves, forageStorage, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte"
+import { checkCharOrder, flushSaves, forageStorage, requestImmediateSave, requiresFullEncoderReload, trackCharacterForSave } from "./globalApi.svelte"
 import { DBState, loadingOverlayStore, selectedCharID } from "./stores.svelte"
 import { convertStubsToPlaceholders } from "./storage/chatStorage"
 import type { ArchivedCharacterStub, character } from "./storage/database.svelte"
 import { CharacterArchiveError, type NodeStorage } from "./storage/nodeStorage"
+import { v4 } from "uuid"
 
 export { CharacterArchiveError }
 
@@ -73,8 +74,18 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
     // this build) are stored as the empty chats they already show as. The
     // trash accepts that outright; a deactivation asks first.
     const run = async (acceptLostChats: boolean) => {
+        // A chat without an id is never uploaded by the save path; give it
+        // one so its body reaches the server with the save below.
+        let assignedIds = false
+        for (const chat of char.chats ?? []) {
+            if (chat && !chat._placeholder && !chat.id) {
+                chat.id = v4()
+                assignedIds = true
+            }
+        }
+        if (assignedIds) trackCharacterForSave(char.chaId)
         // The server builds the payload from its own view: every edit (and
-        // every chat body the save path uploads) must have reached it first,
+        // every chat body this browser holds) must have reached it first,
         // or the archived copy would silently miss them.
         if (!await flushSaves()) throw new Error(language.archiveSaveFailed)
         const stub = await storage().archiveCharacter(char.chaId, { acceptLostChats })

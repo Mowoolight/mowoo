@@ -116,6 +116,24 @@ describe('archiveCharacter', () => {
         expect(state.db.characters).toHaveLength(1)
     })
 
+    test('gives an id-less chat an id and saves it before the server builds the payload', async () => {
+        const chat: any = { name: 'Chat 1', message: [{ role: 'user', data: 'hi' }] }
+        const placeholder: any = { id: 'p', name: 'Old', message: [], _placeholder: true }
+        state.db = { characters: [{ chaId: 'c1', name: 'One', chats: [chat, placeholder] }], nodeOnlyArchivedCharacters: [] }
+        const order: string[] = []
+        trackCharacterForSave.mockImplementation(() => order.push('track'))
+        flushSaves.mockImplementation(async () => { order.push('flush'); return true })
+        storage.archiveCharacter.mockImplementation(async () => { order.push('archive'); return { ...stub } })
+        expect(await archiveCharacter(0, { skipConfirm: true })).toBe(true)
+        expect(typeof chat.id).toBe('string')
+        expect(chat.id.length).toBeGreaterThan(0)
+        expect(placeholder.id).toBe('p')
+        expect(trackCharacterForSave).toHaveBeenCalledWith('c1')
+        expect(order.slice(0, 3)).toEqual(['track', 'flush', 'archive'])
+        expect(state.db.characters).toEqual([])
+        expect(state.db.nodeOnlyArchivedCharacters.map((s: any) => s.chaId)).toEqual(['c1'])
+    })
+
     test('waits for the transition to be saved before reporting success', async () => {
         state.db = { characters: [{ chaId: 'c1', name: 'One', chats: [] }], nodeOnlyArchivedCharacters: [] }
         storage.archiveCharacter.mockResolvedValue({ ...stub })
