@@ -111,6 +111,23 @@
         rawStreamingText = state.rawStreamingText
     }
 
+    // The reroll/swipe controls follow whichever message is currently the last
+    // real char message; updating them in place avoids remounting the message
+    // (and collapsing its height) whenever a newer message takes over.
+    export function updateRerollTarget(state: {
+        rerollIcon: boolean|'dynamic'|'force'
+        onNextSwipe: () => void
+        onDeleteSwipe: () => void
+        currentPage: number
+        totalPages: number
+    }){
+        rerollIcon = state.rerollIcon
+        onNextSwipe = state.onNextSwipe
+        onDeleteSwipe = state.onDeleteSwipe
+        currentPage = state.currentPage
+        totalPages = state.totalPages
+    }
+
     async function rm(){
         const messages = DBState.db.characters[selIdState.selId].chats[DBState.db.characters[selIdState.selId].chatPage].message
         const cascadeCount = messages.length - idx
