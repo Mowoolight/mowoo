@@ -361,9 +361,12 @@ body {
   white-space: pre-wrap;
 }
 
+/* Drags on non-scrolling areas (header, composer, short chats) chain to the
+   root and trigger mobile pull-to-refresh, reloading the app mid-chat. */
 html,
 body {
   height: var(--risu-height-size);
+  overscroll-behavior-y: none;
 }
 
 .chattext p {

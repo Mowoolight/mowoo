@@ -64,6 +64,7 @@
   const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
   const touchDragEnabled = $derived(isTouchDevice && !DBState.db.disableMobileDragDrop);
     import { RISU_SIDEBAR_DRAG_TYPE } from "src/ts/dragTypes";
+    import { scrollWithinContainer } from "../ChatScreens/scrollWithin";
 
   let sideBarMode = $state(0);
   let editMode = $state(false);
@@ -341,12 +342,11 @@
     }
     
     setTimeout(() => {
-      const activeElement = document.querySelector(`[data-char-id="${characterId}"]`)
-      if (activeElement) {
-        activeElement.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'start' 
-        })
+      const activeElement = document.querySelector(`[data-char-id="${characterId}"]`) as HTMLElement | null
+      const list = activeElement?.closest('.character-list') as HTMLElement | null
+      // Scroll the list only — scrollIntoView also scrolls an inflated root.
+      if (activeElement && list) {
+        scrollWithinContainer(activeElement, list, { block: 'start', behavior: 'smooth' })
       }
     }, 100)
   }
