@@ -180,7 +180,7 @@
 ]} bind:selected={$OtherBotsSubmenuIndex} />
 
 {#if $OtherBotsSubmenuIndex === 3}
-    <div class="flex flex-col [&>*:first-child]:border-t-0">
+    <div class="flex flex-col [&>*:first-child]:border-t-0 [&>[role=alert]+*]:border-t-0">
         <SettingRowLayout item={f('ob44', `${language.imageGeneration} ${language.provider}`, 'sdProvider')}>
     {#snippet control()}
     <SelectInput className="w-48" size="sm" bind:value={DBState.db.sdProvider}>
@@ -973,7 +973,7 @@
 {/if}
 
 {#if $OtherBotsSubmenuIndex === 1}
-<div class="flex flex-col [&>*:first-child]:border-t-0">
+<div class="flex flex-col [&>*:first-child]:border-t-0 [&>[role=alert]+*]:border-t-0">
     <SettingRowLayout item={f('ob65', `Auto Speech`, 'ttsAutoSpeech')}>
     {#snippet control()}<ShSwitch checked={!!DBState.db.ttsAutoSpeech} onCheckedChange={(v) => DBState.db.ttsAutoSpeech = v} />{/snippet}
 </SettingRowLayout>
@@ -1006,7 +1006,7 @@
 {/if}
 
 {#if $OtherBotsSubmenuIndex === 2}
-<div class="flex flex-col [&>*:first-child]:border-t-0">
+<div class="flex flex-col [&>*:first-child]:border-t-0 [&>[role=alert]+*]:border-t-0">
     <SettingRowLayout item={f('ob60', `${language.emotionMethod}`, 'emotionMethod')}>
     {#snippet control()}
     <SelectInput className="w-48" size="sm" bind:value={DBState.db.emotionProcesser}>
