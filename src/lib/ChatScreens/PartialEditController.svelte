@@ -726,14 +726,16 @@
         <div class="partial-delete-modal">
             <div class="partial-delete-header">
                 <span class="partial-delete-title">{language.partialEdit.deleteModalTitle}</span>
-                <div class="partial-match-meta">
-                    <span class="partial-match-hint">
-                        {language.partialEdit.matchFound(matchingState.selectedRange.method)}
-                    </span>
-                    <span class="partial-match-confidence" class:low-confidence={matchingState.selectedRange.confidence < 0.7}>
-                        {(matchingState.selectedRange.confidence * 100).toFixed(0)}%
-                    </span>
-                </div>
+                {#if matchingState.selectedRange}
+                    <div class="partial-match-meta">
+                        <span class="partial-match-hint">
+                            {language.partialEdit.matchFound(matchingState.selectedRange.method)}
+                        </span>
+                        <span class="partial-match-confidence" class:low-confidence={matchingState.selectedRange.confidence < 0.7}>
+                            {(matchingState.selectedRange.confidence * 100).toFixed(0)}%
+                        </span>
+                    </div>
+                {/if}
             </div>
             <p class="partial-delete-message">{language.partialEdit.deleteConfirmMessage}</p>
             <div class="partial-delete-preview">
@@ -776,14 +778,16 @@
         <div class="partial-edit-modal">
             <div class="partial-edit-header">
                 <span class="partial-edit-title">{language.partialEdit.editModalTitle}</span>
-                <div class="partial-match-meta">
-                    <span class="partial-match-hint">
-                        {language.partialEdit.matchFound(matchingState.selectedRange.method)}
-                    </span>
-                    <span class="partial-match-confidence" class:low-confidence={matchingState.selectedRange.confidence < 0.7}>
-                        {(matchingState.selectedRange.confidence * 100).toFixed(0)}%
-                    </span>
-                </div>
+                {#if matchingState.selectedRange}
+                    <div class="partial-match-meta">
+                        <span class="partial-match-hint">
+                            {language.partialEdit.matchFound(matchingState.selectedRange.method)}
+                        </span>
+                        <span class="partial-match-confidence" class:low-confidence={matchingState.selectedRange.confidence < 0.7}>
+                            {(matchingState.selectedRange.confidence * 100).toFixed(0)}%
+                        </span>
+                    </div>
+                {/if}
             </div>
             <textarea
                 bind:this={textareaRef}
