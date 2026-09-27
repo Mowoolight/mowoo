@@ -433,9 +433,10 @@ export async function importChat(){
                 const chats = json.data
                 if(Array.isArray(chats) && chats.length > 0){
                     db.characters[selectedID].chats.unshift(...(chats.map((v) => {
-                        if(!v.id){
-                            v.id = uuidv4()
-                        }
+                        // Always a fresh id, like the other chat imports: the
+                        // export's ids still belong to the chats it came from,
+                        // and a duplicate makes two chats share one body.
+                        v.id = uuidv4()
                         if(!v.localLore){
                             v.localLore = []
                         }
@@ -473,6 +474,8 @@ export async function importChat(){
             const chat = doc.querySelector('.idat').textContent
             const json = JSON.parse(chat)
             if(json.message && json.note && json.name && json.localLore){
+                // Fresh id: the exported one still belongs to the original chat.
+                json.id = uuidv4()
                 db.characters[selectedID].chats.unshift(normalizeChat(json))
                 notifySuccess(language.successImport)
             }

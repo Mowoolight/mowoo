@@ -414,6 +414,40 @@ function assignMissingChatIds(dbObj) {
     return changed;
 }
 
+// Character and chat ids made unique the way the browser's assignIds
+// (src/ts/bootstrap.ts) does it — one set over every chaId and chat id, in
+// order, the first occurrence keeps its id — but here, on the full decoded
+// database, where each chat still carries its body. The browser renaming a
+// duplicate on its own left the server's body under the old id: the chat
+// opened empty and the next save dropped the body from disk (and two chats
+// sharing an id inside one character shared one body on the server). Once
+// this has run and persisted, the browser finds nothing to rename.
+function dedupeCharacterAndChatIds(dbObj) {
+    const renamed = [];
+    if (!Array.isArray(dbObj?.characters)) return renamed;
+    const seen = new Set();
+    for (const char of dbObj.characters) {
+        if (!char || typeof char !== 'object') continue;
+        if (!char.chaId || seen.has(char.chaId)) {
+            const next = nodeCrypto.randomUUID();
+            if (char.chaId) renamed.push(`character ${char.chaId} → ${next}`);
+            char.chaId = next;
+        }
+        seen.add(char.chaId);
+        if (!Array.isArray(char.chats)) continue;
+        for (const chat of char.chats) {
+            if (!chat || typeof chat !== 'object') continue;
+            if (!chat.id || seen.has(chat.id)) {
+                const next = nodeCrypto.randomUUID();
+                if (chat.id) renamed.push(`chat ${char.chaId}/${chat.id} → ${next}`);
+                chat.id = next;
+            }
+            seen.add(chat.id);
+        }
+    }
+    return renamed;
+}
+
 // Recovers chats whose folderId points to a deleted folder. The previous merge
 // layer silently kept stale folderId on disk when a user moved a chat out of a
 // folder, then later deleting that folder produced orphans invisible in the
@@ -462,6 +496,14 @@ async function decodeDatabaseWithPersistentChatIds(raw, options = {}) {
     // Failed characters are promoted to safe blank characters — their KV data is preserved for manual recovery.
     const coldRestoreResult = restoreColdStorageCharactersInDb(dbObj);
     if (coldRestoreResult.restored > 0 || coldRestoreResult.failed > 0) needsPersist = true;
+
+    // After the cold-storage restore: it replaces restored characters' chats
+    // wholesale and may bring duplicate or missing ids back.
+    const renamedIds = dedupeCharacterAndChatIds(dbObj);
+    if (renamedIds.length > 0) {
+        needsPersist = true;
+        logger.warn(`[Load] Renamed ${renamedIds.length} duplicate character/chat id(s), keeping each chat's content: ${renamedIds.slice(0, 5).join(', ')}`);
+    }
     if (coldRestoreResult.failed > 0) {
         logger.error(`[ColdStorage] ${coldRestoreResult.failed} character(s) could not be restored and were converted to safe blank characters. Cold storage KV data is preserved.`);
         for (const name of coldRestoreResult.failedNames) {
@@ -6863,6 +6905,25 @@ app.post('/api/characters/:chaId/activate', async (req, res, next) => {
             }
             const full = decoded.payload.character;
             assignMissingChatIds({ characters: [full] });
+            // The browser keeps every chaId and chat id unique across the
+            // database and renames a returning chat whose id another chat took
+            // meanwhile — away from its body. Rename here instead, where the
+            // body moves with it (the row itself is left unchanged).
+            const liveIds = new Set();
+            for (const c of Array.isArray(db.characters) ? db.characters : []) {
+                if (c?.chaId) liveIds.add(c.chaId);
+                for (const ch of Array.isArray(c?.chats) ? c.chats : []) if (ch?.id) liveIds.add(ch.id);
+            }
+            const ownIds = new Set([chaId]);
+            for (const chat of full.chats) {
+                if (!chat || typeof chat !== 'object') continue;
+                if (!chat.id || liveIds.has(chat.id) || ownIds.has(chat.id)) {
+                    const next = nodeCrypto.randomUUID();
+                    logger.warn(`[Archive] activate ${chaId}: chat id ${chat.id || '(none)'} is taken; renamed to ${next}`);
+                    chat.id = next;
+                }
+                ownIds.add(chat.id);
+            }
             await ensureChatStore();
             const charChats = new Map();
             for (const chat of full.chats) {
