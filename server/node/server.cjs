@@ -985,9 +985,14 @@ function findStubFlagLossChats(fullDb) {
 /**
  * Persist dbCache to disk with full chats merged back in.
  */
+// Duration of the last successful debounced database write, reported with
+// /api/patch responses for the client's save dashboard.
+let lastDbPersistMs = null;
+
 async function persistDbCacheWithChats(filePath, decodedKey) {
     const strippedDb = dbCache[filePath];
     if (!strippedDb) return;
+    const persistStartedAt = performance.now();
     await ensureChatStore();
     let fullDb = hydrateDatabaseForDisk(strippedDb);
 
@@ -1044,6 +1049,7 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     // would resurrect the cleared values until the next /api/read.
     if (decodedKey === 'database/database.bin') {
         initChatStore(fullDb);
+        lastDbPersistMs = Math.round(performance.now() - persistStartedAt);
     }
 }
 
@@ -4514,8 +4520,18 @@ app.post('/api/patch', async (req, res, next) => {
     // Which step of the patch flow was running when the outer catch fired —
     // without it a bare error name (e.g. RangeError) is undiagnosable.
     let patchStage = 'load';
+    // Stage timings for the client's save dashboard (see saveMetrics.ts).
+    const patchStartedAt = performance.now();
     try {
         await queueStorageOperation(async () => {
+            const timings = { queueMs: Math.round(performance.now() - patchStartedAt) };
+            let stageAt = performance.now();
+            const lap = () => {
+                const now = performance.now();
+                const ms = Math.round(now - stageAt);
+                stageAt = now;
+                return ms;
+            };
             const decodedKey = Buffer.from(filePath, 'hex').toString('utf-8');
 
             // Load database into memory if not already cached
@@ -4588,9 +4604,11 @@ app.post('/api/patch', async (req, res, next) => {
             }
 
             patchStage = 'hash';
+            lap();
             const serverHash = decodedKey === 'database/database.bin'
                 ? databasePatchHashCache.hash(dbCache[filePath]).toString(16)
                 : calculateHash(dbCache[filePath]).toString(16);
+            timings.hashMs = lap();
 
             if (expectedHash !== serverHash) {
                 logger.warn(`[Patch] Hash mismatch for ${decodedKey}: expected=${expectedHash}, server=${serverHash}`);
@@ -4794,16 +4812,22 @@ app.post('/api/patch', async (req, res, next) => {
                 if (failed && decodedKey === 'database/database.bin') retryDatabasePersistLater('patch');
             }, SAVE_INTERVAL);
 
+            timings.applyMs = lap();
+
             // Update ETag after successful patch (based on stripped version)
             patchStage = 'etag';
             if (decodedKey === 'database/database.bin') {
                 dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
             }
+            timings.etagMs = lap();
+            timings.totalMs = Math.round(performance.now() - patchStartedAt);
+            if (lastDbPersistMs !== null) timings.lastPersistMs = lastDbPersistMs;
 
             const responsePayload = {
                 success: true,
                 appliedOperations: result.length + pluginKvOps.length,
                 etag: decodedKey === 'database/database.bin' ? dbEtag : undefined,
+                timings,
             };
             const persistWarning = currentPersistWarning();
             if (persistWarning) {

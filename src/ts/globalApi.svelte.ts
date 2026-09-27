@@ -7,6 +7,7 @@ import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, nod
 import { checkRisuUpdate } from "./update";
 import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
 import { recordDbTransferSize } from "./transferSize";
+import { newSaveTiming, recordSaveSample, type SaveOutcome, type SaveTiming } from "./storage/saveMetrics";
 import { loadPlugins } from "./plugins/plugins.svelte";
 import { alertConfirm, alertError, alertMd, alertNormalWait, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError, notifyInfo } from "./alert";
 import { hasher } from "./parser/parser.svelte";
@@ -411,6 +412,8 @@ export let saving = $state({
  * 
  * @returns {Promise<void>} - A promise that resolves when the database has been saved.
  */
+// Kept for upstream parity (callers still set it). saveDb builds a fresh
+// encoder for every full write, so nothing here reads it any more.
 export let requiresFullEncoderReload = $state({
     state: false
 })
@@ -643,11 +646,6 @@ export async function saveDb() {
         // Always false: plugin values are in the server kv, not the DB.
         pluginCustomStorage: false
     }
-
-    let encoder = new RisuSaveEncoder()
-    await encoder.init(getDatabase(), {
-        compression: false
-    })
 
     let patcher = new RisuSavePatcher()
     if (supportsPatchSync) {
@@ -1115,10 +1113,6 @@ export async function saveDb() {
                 }
             }
 
-            encoder = new RisuSaveEncoder()
-            await encoder.init(getDatabase(), {
-                compression: false
-            })
             if (supportsPatchSync) {
                 // Seed from the server's view, not the merged result: the
                 // retry then sends the overlaid local changes as a patch
@@ -1134,6 +1128,7 @@ export async function saveDb() {
 
     async function persistTrackedChanges(
         toSave: toSaveType,
+        timing: SaveTiming,
         options?: {
             forceFullWrite?: boolean
             skipBroadcast?: boolean
@@ -1155,6 +1150,13 @@ export async function saveDb() {
         }
 
         // ── Save changed chat content to server ─────────────────────────
+        let stageAt = performance.now()
+        const lap = () => {
+            const now = performance.now()
+            const ms = Math.round(now - stageAt)
+            stageAt = now
+            return ms
+        }
         const failedChats: { chaId: string, chatId: string, message: string }[] = []
         for (const [chaId, chatId] of collectChatsToPersist(db, toSave)) {
             const char = db.characters.find(c => c.chaId === chaId)
@@ -1176,16 +1178,7 @@ export async function saveDb() {
                 `Failed to save ${failedChats.length} chat${failedChats.length === 1 ? '' : 's'}: ${failedChats[0].message}`
             )
         }
-
-        // ── database.bin: exclude chat payload (stubs only via encoder) ──
-        await encoder.set(db, safeStructuredClone(toSave))
-        const encoded = encoder.encode()
-        if (!encoded) {
-            await sleep(1000)
-            return 'noop'
-        }
-        const dbData = new Uint8Array(encoded)
-        recordDbTransferSize(dbData.byteLength, 'save')
+        timing.chatsMs = lap()
 
         let saved = false
         let newEtag: string | undefined
@@ -1207,7 +1200,9 @@ export async function saveDb() {
         if (supportsPatchSync && !options?.forceFullWrite) {
             syncedArchivedIds = patcher.baselineArchivedCharacterIds()
             syncedBaselineDb = patcher.baselineDb()
+            lap()
             const patchData = await patcher.set(db, safeStructuredClone(toSave))
+            timing.patchSetMs = lap()
             attemptedChangedCharIds = patcher.changedCharacterIdsOfLastSet()
             attemptedIdsAmbiguous = hasAmbiguousCharacterIds(db.characters ?? [])
             // Refuse to send patches that would corrupt server-side lazy chats.
@@ -1229,6 +1224,7 @@ export async function saveDb() {
                     + ` (verbose dump: localStorage.setItem('${CHAT_GUARD_DEBUG_KEY}', '1') then reproduce)`
                 )
                 showChatGuardToastThrottled('client')
+                timing.fullWriteReason = 'chat-guard'
 
                 if (isChatGuardDebugEnabled()) {
                 // ── Diagnostic dump for unknown root cause ────────────────
@@ -1377,7 +1373,16 @@ export async function saveDb() {
                 // device's write.
                 const syncedEtag = forageStorage.getDbEtag()
                 const patchResult = await forageStorage.patchItem('database/database.bin', patchData)
+                timing.patchRequestMs = lap()
+                timing.server = patchResult.serverTimings
                 saved = patchResult.success
+                if (saved) {
+                    // No full encode on a patch save: estimate the full-write
+                    // payload from the patcher's per-entry JSON instead.
+                    recordDbTransferSize(patcher.estimatePayloadBytes(), 'save')
+                } else {
+                    timing.fullWriteReason = 'rejected'
+                }
                 if (patchResult.success && patchResult.etag) {
                     newEtag = patchResult.etag
                     forageStorage.setDbEtag(patchResult.etag)
@@ -1457,6 +1462,18 @@ export async function saveDb() {
             if (supportsPatchSync && !options?.forceFullWrite) {
                 console.warn('[Save] Patch conflict, falling through to full write...')
             }
+            timing.fullWriteReason ??= options?.forceFullWrite ? 'forced' : 'no-patch-sync'
+            // ── database.bin: exclude chat payload (stubs only via encoder) ──
+            // Encoded only here, from a fresh encoder: a patch save never
+            // needs the whole payload, and a fresh init (then set, which adds
+            // the root __directory) cannot carry stale preset/module blocks.
+            lap()
+            const fullEncoder = new RisuSaveEncoder()
+            await fullEncoder.init(db, { compression: false })
+            await fullEncoder.set(db, safeStructuredClone(toSave))
+            const dbData = new Uint8Array(fullEncoder.encode())
+            recordDbTransferSize(dbData.byteLength, 'save')
+            timing.fullEncodeMs = lap()
             const currentEtag = forageStorage.getDbEtag()
             try {
                 await forageStorage.setItem('database/database.bin', dbData, currentEtag ?? undefined)
@@ -1479,6 +1496,7 @@ export async function saveDb() {
                 }
                 throw conflictErr
             }
+            timing.fullWriteMs = lap()
 
             // Re-init patcher from the data we just wrote so both sides
             // share the same baseline (including setDatabase defaults).
@@ -1515,8 +1533,15 @@ export async function saveDb() {
         const seq = ++saveSeq
         saveInFlight = (async () => {
             saving.state = true
+            const startedAt = performance.now()
+            const timing = newSaveTiming()
+            const recordSample = (outcome: SaveOutcome) => recordSaveSample({
+                ...timing, at: Date.now(), outcome, totalMs: Math.round(performance.now() - startedAt),
+            })
             try {
-                const result = await persistTrackedChanges(toSave, options)
+                const result = await persistTrackedChanges(toSave, timing, options)
+                if (result === 'saved') recordSample(timing.fullWriteReason ? 'full' : 'patch')
+                else if (result === 'retry') recordSample('retry')
                 if (result === 'saved') {
                     lastSavedSeq = seq
                     savetrys = 0
@@ -1534,6 +1559,7 @@ export async function saveDb() {
                     changed = true
                 }
             } catch (error) {
+                recordSample('error')
                 requeueTrackedChanges(toSave)
                 if (error instanceof SaveRejectedError) {
                     // Deterministic rejection: the generic backoff below would
@@ -1582,7 +1608,6 @@ export async function saveDb() {
                 await saveInFlight
                 continue
             }
-            await reloadEncoderIfRequired()
             const before = saveSeq
             await triggerSave()
             if (saveSeq === before) return true // nothing was tracked
@@ -1599,16 +1624,6 @@ export async function saveDb() {
 
     let consecutiveRetries = 0
 
-    async function reloadEncoderIfRequired() {
-        if (!requiresFullEncoderReload.state) return
-        encoder = new RisuSaveEncoder()
-        await encoder.init(getDatabase(), {
-            compression: false,
-            skipRemoteSavingOnCharacters: false
-        })
-        requiresFullEncoderReload.state = false
-    }
-
     const MAX_CONSECUTIVE_SAVE_RETRIES = 5
     while (true) {
         if (!changed) {
@@ -1616,7 +1631,6 @@ export async function saveDb() {
             continue
         }
         changed = false
-        await reloadEncoderIfRequired()
         await triggerSave()
         await sleep(100)
     }

@@ -2365,6 +2365,20 @@ export const languageKorean = {
   storageOrphanAutoCleanDesc:
     "앱을 열 때마다 고아 미디어를 자동으로 지웁니다. 기본은 꺼짐 — 아직 알려지지 않은 참조까지 지울 수 있어 수동 정리를 권장합니다.",
 
+  storageSaveMetrics: "저장 성능",
+  storageSaveMetricsHeader: (n: number) => `이 탭의 최근 ${n}회`,
+  storageSaveMetricsDesc:
+    "이 탭에서 최근 저장에 걸린 시간입니다. 저장이 느리거나 자주 실패하면 '진단 복사' 내용을 제보에 함께 붙여 주세요. 경로·이름·내용은 들어가지 않습니다.",
+  storageSaveMetricsEmpty: "아직 저장 기록이 없습니다. 편집하면 여기에 쌓입니다.",
+  storageSaveMetricsCounts: "저장 방식",
+  storageSaveMetricsCountsValue: (patch: number, full: number, retry: number, error: number) =>
+    `부분 ${patch} · 전체 ${full} · 재시도 ${retry} · 실패 ${error}`,
+  storageSaveMetricsTime: "저장 시간 (중앙값 / 상위 10%)",
+  storageSaveMetricsServer: "서버 처리 (중앙값)",
+  storageSaveMetricsQueue: "서버 대기열 대기 (중앙값)",
+  storageSaveMetricsPersist: "마지막 디스크 기록",
+  storageSaveMetricsCopy: "진단 복사",
+
   storageWalCleanup: "WAL 수동 정리",
   storageWalCleanupHeader: (walSize: number) =>
     `현재 WAL ${(walSize / 1024 / 1024).toFixed(1)} MB`,

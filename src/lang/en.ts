@@ -2168,6 +2168,19 @@ export const languageEnglish = {
     storageOrphanAutoCleanDesc:
         "Delete orphan media every time the app opens. Off by default — it can also delete references the scanner does not know about yet, so manual purging is safer.",
 
+    storageSaveMetrics: "Save performance",
+    storageSaveMetricsHeader: (n: number) => `Last ${n} in this tab`,
+    storageSaveMetricsDesc: "Time taken by recent saves in this tab. If saving is slow or keeps failing, attach the 'Copy diagnostics' output to your report. It contains no paths, names or content.",
+    storageSaveMetricsEmpty: "No saves recorded yet. They appear here as you edit.",
+    storageSaveMetricsCounts: "Save kind",
+    storageSaveMetricsCountsValue: (patch: number, full: number, retry: number, error: number) =>
+        `Partial ${patch} · Full ${full} · Retry ${retry} · Failed ${error}`,
+    storageSaveMetricsTime: "Save time (median / top 10%)",
+    storageSaveMetricsServer: "Server processing (median)",
+    storageSaveMetricsQueue: "Server queue wait (median)",
+    storageSaveMetricsPersist: "Last disk write",
+    storageSaveMetricsCopy: "Copy diagnostics",
+
     storageWalCleanup: "Manual WAL cleanup",
     storageWalCleanupHeader: (walSize: number) => `Current WAL ${(walSize / 1024 / 1024).toFixed(1)} MB`,
     storageWalCleanupWhat: "SQLite's WAL file (risuai.db-wal) collects recent changes before merging them into the main database. A background checkpoint runs every 5 minutes, but bursts like backup import or large asset uploads can temporarily inflate it.",

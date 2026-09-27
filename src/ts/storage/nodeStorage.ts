@@ -9,6 +9,7 @@ import { language } from "src/lang"
 import { alertInput, waitAlert, notifyError } from "../alert"
 import { decodeRisuSave, encodeRisuSaveLegacy } from "./risuSave"
 import { normalizeChat } from "./database.svelte"
+import type { PatchServerTimings } from "./saveMetrics"
 
 const AUTH_FETCH_TRANSIENT_MAX_RETRIES = 3
 const AUTH_FETCH_TRANSIENT_BASE_DELAY_MS = 500
@@ -112,6 +113,8 @@ export interface PatchItemResult {
     /** `code` / `error` of a 409 body, for logging which guard rejected the patch. */
     conflictCode?: string
     conflictError?: string
+    /** Server stage timings on success (older servers omit them). */
+    serverTimings?: PatchServerTimings
 }
 
 /** Hash fields a 409 or a full-write response may carry; null when absent. */
@@ -705,7 +708,10 @@ export class NodeStorage{
             this._lastDbEtag = nextEtag
         }
         const persistWarning = data.persistWarning as PersistWarning | undefined
-        return { success: true, etag: nextEtag, persistWarning }
+        const serverTimings = data.timings && typeof data.timings === 'object'
+            ? data.timings as PatchServerTimings
+            : undefined
+        return { success: true, etag: nextEtag, persistWarning, serverTimings }
     }
 
     // ── Bulk asset operations (3-2-B) ──────────────────────────────────────────
