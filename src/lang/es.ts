@@ -513,6 +513,13 @@ export const languageSpanish = {
     "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
         `${count} chat(s) de "${name}" no tienen contenido ni en el servidor ni en este navegador, así que se abren vacíos.\n\n${list}\n\nSe guardarán como chats vacíos. ¿Desactivar?`,
     "deactivateCharacterFailed": "La desactivación falló: ",
+    "archiveSavePending": "Desactivado, pero aún no se guardó en el servidor. El guardado se reintenta automáticamente.",
+    "bulkArchiveBusy": "Ya se están procesando varios personajes. Inténtalo de nuevo cuando termine.",
+    "bulkArchiveProgress": (done: number, total: number, trash: boolean) => `${trash ? "Moviendo a la papelera" : "Desactivando"}… ${done}/${total}`,
+    "bulkArchiveDone": (count: number, trash: boolean) => trash ? `${count} personaje(s) movido(s) a la papelera.` : `${count} personaje(s) desactivado(s).`,
+    "bulkArchiveFailed": (done: number, failed: number, list: string) => `${done} completados, ${failed} fallidos. Los personajes fallidos quedaron como estaban.\n\n${list}`,
+    "bulkArchiveStopped": "Los cambios no se pudieron guardar en el servidor, así que el resto de personajes no se procesó. Los ya procesados reintentan guardarse automáticamente.",
+    "bulkDeactivateLostChats": (count: number, list: string) => `${count} personaje(s) tienen chats sin contenido ni en el servidor ni en este navegador; se abren vacíos.\n\n${list}\n\nEsos chats se guardarán como chats vacíos. ¿Desactivar también estos personajes?`,
     "archiveSaveFailed": "los cambios recientes no se pudieron guardar en el servidor, así que se detuvo para conservarlos. Inténtalo de nuevo en un momento.",
     "activateCharacterConfirm": (name: string) => `"${name}" está desactivado. ¿Activarlo?`,
     "activateCharacterMissing": "No se encontraron los datos guardados del personaje, así que no se puede activar. Revisa el registro del servidor y el panel de almacenamiento.",

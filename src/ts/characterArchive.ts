@@ -15,13 +15,13 @@
  */
 import { get } from "svelte/store"
 import { language } from "src/lang"
-import { alertConfirm, alertError, notifySuccess } from "./alert"
+import { alertConfirm, alertError, notifyError, notifySuccess } from "./alert"
 import { changeChar, deselectCharacter } from "./characters"
 import { checkCharOrder, flushSaves, forageStorage, requestImmediateSave, requiresFullEncoderReload, trackCharacterForSave } from "./globalApi.svelte"
 import { DBState, loadingOverlayStore, selectedCharID } from "./stores.svelte"
 import { convertStubsToPlaceholders } from "./storage/chatStorage"
 import type { ArchivedCharacterStub, character } from "./storage/database.svelte"
-import { CharacterArchiveError, type NodeStorage } from "./storage/nodeStorage"
+import { CharacterArchiveError, type ArchiveBatchResult, type NodeStorage } from "./storage/nodeStorage"
 import { v4 } from "uuid"
 
 export { CharacterArchiveError }
@@ -108,9 +108,14 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
         else if (selectedIndex > idx) selectedCharID.set(selectedIndex - 1)
         // Until this save lands the server still sees the character active.
         // The overlay stays up meanwhile; activation also waits for it.
-        if (arg.silent) void requestImmediateSave()
-        else await flushSaves()
-        if (!arg.silent) notifySuccess(arg.trash ? language.trashCharacterDone : language.deactivateCharacterDone)
+        if (arg.silent) {
+            void requestImmediateSave()
+        } else if (await flushSaves()) {
+            notifySuccess(arg.trash ? language.trashCharacterDone : language.deactivateCharacterDone)
+        } else {
+            // Done here, not yet on the server; the save queue keeps retrying.
+            notifyError(language.archiveSavePending)
+        }
         return true
     }
     // silent: no overlay, no dialogs — the caller reports (migration logs).
@@ -126,6 +131,119 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
         if (!(error instanceof CharacterArchiveError && error.code === 'ARCHIVE_CHATS_UNAVAILABLE')) return fail(error)
         if (!await alertConfirm(language.deactivateCharacterLostChats(name, error.chats.length, bulletList(error.chats)))) return false
         return await attempt(true).catch(fail)
+    }
+}
+
+const BULK_ARCHIVE_CHUNK = 20
+let bulkArchiveRunning = false
+
+export interface BulkArchiveOutcome {
+    /** Characters moved to the stub list. */
+    done: number
+    /** Characters left active, with the reason. */
+    failed: { chaId: string; name: string; reason: string }[]
+    /** Refused because some chats have no content anywhere (only without acceptLostChats). */
+    lost: { chaId: string; name: string; chats: string[] }[]
+    /** A save did not land; later chunks were not attempted. */
+    stopped: boolean
+}
+
+export function isBulkArchiveRunning(): boolean {
+    return bulkArchiveRunning
+}
+
+// The chunk's successes, applied in one synchronous step to the database
+// current after the request: the characters leave `characters`, their stubs
+// join the stub list, the order is normalised once and the selection follows
+// its character by id.
+function applyArchived(successes: { chaId: string; stub: any }[], trash: boolean): number {
+    const db = DBState.db
+    const selectedChaId = db.characters[get(selectedCharID)]?.chaId
+    if (!Array.isArray(db.nodeOnlyArchivedCharacters)) db.nodeOnlyArchivedCharacters = []
+    const moved = new Set<string>()
+    const now = Date.now()
+    for (const { chaId, stub } of successes) {
+        if (!db.characters.some((c) => c?.chaId === chaId)) continue
+        if (trash) stub.trashedAt = now
+        if (!db.nodeOnlyArchivedCharacters.some((s) => s?.chaId === chaId)) db.nodeOnlyArchivedCharacters.push(stub)
+        moved.add(chaId)
+    }
+    if (moved.size === 0) return 0
+    for (let i = db.characters.length - 1; i >= 0; i--) {
+        if (moved.has(db.characters[i]?.chaId)) db.characters.splice(i, 1)
+    }
+    checkCharOrder()
+    requiresFullEncoderReload.state = true
+    if (selectedChaId && moved.has(selectedChaId)) {
+        deselectCharacter()
+    } else if (selectedChaId) {
+        const idx = db.characters.findIndex((c) => c?.chaId === selectedChaId)
+        if (idx !== get(selectedCharID)) selectedCharID.set(idx)
+    }
+    return moved.size
+}
+
+/**
+ * Deactivate (or trash) many characters. Rows are written in chunks by
+ * /api/characters/archive-batch, which rewrites database.bin once per chunk
+ * instead of once per character; after each chunk its successes are applied
+ * and saved before the next one starts, so every character that leaves the
+ * list is on the server first. A progress overlay stays up for the whole run.
+ */
+export async function archiveCharacters(chaIds: string[], arg: { trash?: boolean; acceptLostChats?: boolean } = {}): Promise<BulkArchiveOutcome> {
+    if (bulkArchiveRunning) throw new Error(language.bulkArchiveBusy)
+    bulkArchiveRunning = true
+    const outcome: BulkArchiveOutcome = { done: 0, failed: [], lost: [], stopped: false }
+    const trash = !!arg.trash
+    const progress = (done: number, total: number) =>
+        loadingOverlayStore.set({ active: true, text: language.bulkArchiveProgress(done, total, trash), onCancel: null })
+    try {
+        const names = new Map<string, string>()
+        const targets: string[] = []
+        for (const chaId of new Set(chaIds)) {
+            const char = DBState.db.characters.find((c) => c?.chaId === chaId)
+            if (!char) continue
+            names.set(chaId, char.name || 'Unnamed')
+            targets.push(chaId)
+            // Same as a single deactivation: a chat without an id is never
+            // uploaded, so it gets one before the first save below.
+            let assigned = false
+            for (const chat of char.chats ?? []) {
+                if (chat && !chat._placeholder && !chat.id) {
+                    chat.id = v4()
+                    assigned = true
+                }
+            }
+            if (assigned) trackCharacterForSave(chaId)
+        }
+        if (targets.length === 0) return outcome
+        progress(0, targets.length)
+        if (!await flushSaves()) throw new Error(language.archiveSaveFailed)
+        for (let i = 0; i < targets.length; i += BULK_ARCHIVE_CHUNK) {
+            const chunk = targets.slice(i, i + BULK_ARCHIVE_CHUNK)
+            const results: ArchiveBatchResult[] = await storage().archiveCharacters(chunk, { acceptLostChats: arg.acceptLostChats ?? trash })
+            const successes: { chaId: string; stub: any }[] = []
+            for (const r of results) {
+                const name = names.get(r.chaId) ?? r.chaId
+                if (r.ok) {
+                    successes.push({ chaId: r.chaId, stub: (r as Extract<ArchiveBatchResult, { ok: true }>).stub })
+                    continue
+                }
+                const f = r as Extract<ArchiveBatchResult, { ok: false }>
+                if (f.code === 'ARCHIVE_CHATS_UNAVAILABLE') outcome.lost.push({ chaId: f.chaId, name, chats: f.chats ?? [] })
+                else outcome.failed.push({ chaId: f.chaId, name, reason: f.error })
+            }
+            outcome.done += applyArchived(successes, trash)
+            if (!await flushSaves()) {
+                outcome.stopped = true
+                break
+            }
+            progress(Math.min(i + chunk.length, targets.length), targets.length)
+        }
+        return outcome
+    } finally {
+        loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+        bulkArchiveRunning = false
     }
 }
 

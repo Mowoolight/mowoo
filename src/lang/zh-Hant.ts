@@ -536,6 +536,13 @@ export const languageChineseTraditional = {
     "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
         `「${name}」的 ${count} 個聊天在伺服器和此瀏覽器中都沒有內容，開啟後顯示為空聊天。\n\n${list}\n\n這些聊天將以空聊天保存。要停用嗎？`,
     "deactivateCharacterFailed": "停用失敗：",
+    "archiveSavePending": "已停用，但尚未儲存到伺服器。將自動重試儲存。",
+    "bulkArchiveBusy": "已有多個角色正在處理中。請在完成後再試。",
+    "bulkArchiveProgress": (done: number, total: number, trash: boolean) => `${trash ? "正在移至垃圾桶" : "正在停用"}… ${done}/${total}`,
+    "bulkArchiveDone": (count: number, trash: boolean) => trash ? `已將 ${count} 個角色移至垃圾桶。` : `已停用 ${count} 個角色。`,
+    "bulkArchiveFailed": (done: number, failed: number, list: string) => `已完成 ${done} 個，失敗 ${failed} 個。失敗的角色保持原樣。\n\n${list}`,
+    "bulkArchiveStopped": "變更未能儲存到伺服器，其餘角色未處理。已處理的角色會自動重試儲存。",
+    "bulkDeactivateLostChats": (count: number, list: string) => `${count} 個角色有在伺服器和此瀏覽器中都沒有內容的聊天，開啟後顯示為空聊天。\n\n${list}\n\n這些聊天將以空聊天保存。也要停用這些角色嗎？`,
     "archiveSaveFailed": "最近的變更未能儲存到伺服器，為保護這些變更已中止。請稍後再試。",
     "rebaseSkippedArchived": (names: string) =>
         `「${names}」已在其他裝置上停用，因此本裝置尚未儲存的變更已被捨棄。`,

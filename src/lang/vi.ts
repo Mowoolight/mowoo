@@ -513,6 +513,13 @@ export const languageVietnamese = {
     "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
         `${count} đoạn chat của "${name}" không có nội dung trên máy chủ lẫn trong trình duyệt này nên mở ra đều trống.\n\n${list}\n\nChúng sẽ được giữ lại dưới dạng chat trống. Vô hiệu hóa?`,
     "deactivateCharacterFailed": "Vô hiệu hóa thất bại: ",
+    "archiveSavePending": "Đã vô hiệu hóa nhưng chưa lưu lên máy chủ. Sẽ tự động thử lưu lại.",
+    "bulkArchiveBusy": "Đang xử lý nhiều nhân vật. Hãy thử lại khi xong.",
+    "bulkArchiveProgress": (done: number, total: number, trash: boolean) => `${trash ? "Đang chuyển vào thùng rác" : "Đang vô hiệu hóa"}… ${done}/${total}`,
+    "bulkArchiveDone": (count: number, trash: boolean) => trash ? `Đã chuyển ${count} nhân vật vào thùng rác.` : `Đã vô hiệu hóa ${count} nhân vật.`,
+    "bulkArchiveFailed": (done: number, failed: number, list: string) => `Xong ${done}, thất bại ${failed}. Các nhân vật thất bại được giữ nguyên.\n\n${list}`,
+    "bulkArchiveStopped": "Không lưu được thay đổi lên máy chủ nên các nhân vật còn lại chưa được xử lý. Những nhân vật đã xử lý sẽ tự động thử lưu lại.",
+    "bulkDeactivateLostChats": (count: number, list: string) => `${count} nhân vật có đoạn chat không có nội dung trên máy chủ lẫn trong trình duyệt này; mở ra đều trống.\n\n${list}\n\nCác đoạn chat đó sẽ được giữ lại dưới dạng chat trống. Vô hiệu hóa cả những nhân vật này?`,
     "archiveSaveFailed": "không lưu được các thay đổi gần đây lên máy chủ nên đã dừng lại để giữ chúng. Hãy thử lại sau ít phút.",
     "activateCharacterConfirm": (name: string) => `"${name}" đang bị vô hiệu hóa. Kích hoạt lại?`,
     "activateCharacterMissing": "Không tìm thấy dữ liệu nhân vật đã lưu nên không thể kích hoạt. Hãy kiểm tra nhật ký máy chủ và bảng lưu trữ.",

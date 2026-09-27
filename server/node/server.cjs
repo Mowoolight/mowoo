@@ -323,19 +323,38 @@ async function flushPendingDb() {
     if (saveTimers[DB_HEX_KEY]) {
         clearTimeout(saveTimers[DB_HEX_KEY]);
         delete saveTimers[DB_HEX_KEY];
-        if (dbCache[DB_HEX_KEY]) {
-            await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
-        } else if (fullChatStore && fullChatStore.size > 0) {
-            // No stripped cache but chat store has data — merge and persist directly
-            const raw = kvGet('database/database.bin');
-            if (raw) {
-                const dbObj = normalizeJSON(await decodeRisuSave(raw));
-                const fullDb = hydrateDatabaseForDisk(stripDatabaseForClient(dbObj, { reconcileManifests: true }));
-                kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+        try {
+            if (dbCache[DB_HEX_KEY]) {
+                await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
+            } else if (fullChatStore && fullChatStore.size > 0) {
+                // No stripped cache but chat store has data — merge and persist directly
+                const raw = kvGet('database/database.bin');
+                if (raw) {
+                    const dbObj = normalizeJSON(await decodeRisuSave(raw));
+                    const fullDb = hydrateDatabaseForDisk(stripDatabaseForClient(dbObj, { reconcileManifests: true }));
+                    kvSet('database/database.bin', Buffer.from(encodeRisuSaveLegacy(fullDb)));
+                }
             }
+        } catch (error) {
+            // The timer was the only record that memory is ahead of disk.
+            retryDatabasePersistLater('flush');
+            throw error;
         }
         createBackupAndRotate();
     }
+}
+
+// A failed persist used to drop its timer, so nothing wrote the pending
+// changes again until the next edit (and a restart lost them). Try again
+// later while the cache still holds them. A guard that refused to persist
+// drops dbCache on purpose; then there is nothing to retry, and a no-op
+// "success" must not clear the failure it recorded.
+const PERSIST_RETRY_MS = process.env.POCKETRISU_PERSIST_RETRY_MS
+    ? Number(process.env.POCKETRISU_PERSIST_RETRY_MS)
+    : 30_000; // override for tests
+function retryDatabasePersistLater(source) {
+    if (!dbCache[DB_HEX_KEY] || saveTimers[DB_HEX_KEY]) return;
+    scheduleDatabasePersist(`${source}:retry`, PERSIST_RETRY_MS);
 }
 
 // ── /api/patch × plugin storage ─────────────────────────────────────────────
@@ -1023,11 +1042,12 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     }
 }
 
-function scheduleDatabasePersist(source = 'database') {
+function scheduleDatabasePersist(source = 'database', delay = SAVE_INTERVAL) {
     if (saveTimers[DB_HEX_KEY]) clearTimeout(saveTimers[DB_HEX_KEY]);
     const timer = setTimeout(() => {
         queueStorageOperation(async () => {
             if (saveTimers[DB_HEX_KEY] !== timer) return;
+            let failed = false;
             try {
                 await persistDbCacheWithChats(DB_HEX_KEY, 'database/database.bin');
                 clearPersistFailure();
@@ -1036,11 +1056,13 @@ function scheduleDatabasePersist(source = 'database') {
             } catch (error) {
                 logger.error(`[${source}] Error saving database.bin:`, error);
                 recordPersistFailure(error, source);
+                failed = true;
             } finally {
                 if (saveTimers[DB_HEX_KEY] === timer) delete saveTimers[DB_HEX_KEY];
             }
+            if (failed) retryDatabasePersistLater(source);
         }).catch((error) => logger.error(`[${source}] Storage queue failed:`, error));
-    }, SAVE_INTERVAL);
+    }, delay);
     saveTimers[DB_HEX_KEY] = timer;
 }
 
@@ -4732,6 +4754,7 @@ app.post('/api/patch', async (req, res, next) => {
                 clearTimeout(saveTimers[filePath]);
             }
             saveTimers[filePath] = setTimeout(async () => {
+                let failed = false;
                 try {
                     if (decodedKey === 'database/database.bin') {
                         await persistDbCacheWithChats(filePath, decodedKey);
@@ -4759,9 +4782,11 @@ app.post('/api/patch', async (req, res, next) => {
                 } catch (error) {
                     logger.error(`[Patch] Error saving ${decodedKey}:`, error);
                     recordPersistFailure(error, `patch:${decodedKey}`);
+                    failed = true;
                 } finally {
                     delete saveTimers[filePath];
                 }
+                if (failed && decodedKey === 'database/database.bin') retryDatabasePersistLater('patch');
             }, SAVE_INTERVAL);
 
             // Update ETag after successful patch (based on stripped version)
@@ -6028,6 +6053,7 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 clearTimeout(saveTimers[DB_HEX_KEY]);
             }
             saveTimers[DB_HEX_KEY] = setTimeout(async () => {
+                let failed = false;
                 try {
                     // If dbCache has stripped DB, persist with merged chats
                     if (dbCache[DB_HEX_KEY]) {
@@ -6060,9 +6086,11 @@ app.post('/api/chat-content/:chaId/:chatIndex', async (req, res, next) => {
                 } catch (error) {
                     logger.error('[ChatContent] Error persisting chat:', error);
                     recordPersistFailure(error, 'chat-content');
+                    failed = true;
                 } finally {
                     delete saveTimers[DB_HEX_KEY];
                 }
+                if (failed) retryDatabasePersistLater('chat-content');
             }, SAVE_INTERVAL);
 
             res.json({ success: true });
@@ -6502,21 +6530,29 @@ function addArchivedCharacterRefs(uncleanable, dbObj) {
 
 // Archive rows the live database no longer points at (re-activated, deleted,
 // or replaced by a backup import). Sizes are logical (chunk-aware).
+// A row just written is referenced by no stub until the client's save lands
+// (a bulk run keeps rows in that state for a whole chunk). Rows this young are
+// never orphans, so a purge in that window cannot delete them.
+const ARCHIVE_ORPHAN_GRACE_MS = process.env.POCKETRISU_ARCHIVE_ORPHAN_GRACE_MS
+    ? Number(process.env.POCKETRISU_ARCHIVE_ORPHAN_GRACE_MS)
+    : 10 * 60 * 1000; // override for tests that purge rows they just wrote
+
 function listOrphanArchiveRows(dbObj) {
     const referenced = referencedArchiveRowIds(dbObj);
     const payloads = [];
     const metas = [];
     let bytes = 0;
+    const youngestOrphan = Date.now() - ARCHIVE_ORPHAN_GRACE_MS;
     for (const key of kvList(ARCHIVE_PREFIX)) {
         const parsed = parseArchiveRowKey(key, ARCHIVE_PREFIX);
-        if (parsed && referenced.has(parsed.rowId)) continue;
+        if (parsed && (referenced.has(parsed.rowId) || parsed.archivedAt > youngestOrphan)) continue;
         const size = kvSize(key) || 0;
         payloads.push({ key, size });
         bytes += size;
     }
     for (const key of kvList(ARCHIVE_META_PREFIX)) {
         const parsed = parseArchiveRowKey(key, ARCHIVE_META_PREFIX);
-        if (parsed && referenced.has(parsed.rowId)) continue;
+        if (parsed && (referenced.has(parsed.rowId) || parsed.archivedAt > youngestOrphan)) continue;
         metas.push(key);
     }
     return { payloads, metas, bytes };
@@ -6788,6 +6824,74 @@ app.get('/api/inlays/references', async (req, res, next) => {
     }
 });
 
+// Write the archive row (and index row) for one live character of `db`,
+// verified by reading it back. The database itself is left alone: the client
+// moves the character to its stub list and saves. Caller holds the storage
+// queue and has flushed pending persists. Resolves to { ok: true, stub } or
+// { ok: false, status, code, error, chats? }.
+async function writeArchiveRow(db, chaId, { acceptLostChats = false } = {}) {
+    const character = (Array.isArray(db.characters) ? db.characters : []).find((c) => c?.chaId === chaId);
+    if (!character) {
+        return { ok: false, status: 404, error: 'Character not found', code: 'ARCHIVE_CHARACTER_NOT_FOUND' };
+    }
+    if (archivedStubsOf(db).some((s) => s.chaId === chaId)) {
+        return { ok: false, status: 409, error: 'Character is already deactivated', code: 'ARCHIVE_ALREADY' };
+    }
+    let full;
+    try {
+        full = await hydrateCharacterForArchive(character, { acceptLostChats });
+    } catch (err) {
+        if (err?.code === 'ARCHIVE_CHATS_UNAVAILABLE') {
+            return { ok: false, status: 409, error: err.message, code: err.code, chats: err.chats };
+        }
+        throw err;
+    }
+    // The trash marker lives on the stub (`trashedAt`), never in the row:
+    // a legacy-trashed character migrating into the archive must come
+    // back clean when activated.
+    delete full.trashTime;
+    // New row per deactivation; never overwrite an existing version.
+    let archivedAt = Date.now();
+    while (kvSize(archiveKey(chaId, archivedAt)) || kvGet(archiveMetaKey(chaId, archivedAt))) archivedAt++;
+    const payload = { v: ARCHIVE_FORMAT_VERSION, chaId, archivedAt, character: full };
+    const encoded = Buffer.from(encodeRisuSaveLegacy(payload));
+    kvSet(archiveKey(chaId, archivedAt), encoded);
+    // Read back before anything depends on it: the next step (the client
+    // dropping the character from `characters`) is only safe if this
+    // row decodes to exactly what we hydrated.
+    try {
+        const verified = await decodeArchivePayload(chaId, archivedAt);
+        if (!verified || calculateHash(verified.payload.character) !== calculateHash(full)) {
+            throw new Error('read-back does not match');
+        }
+    } catch (err) {
+        kvDel(archiveKey(chaId, archivedAt));
+        logger.error(`[Archive] verification failed for ${chaId}:`, err?.message || err);
+        return { ok: false, status: 500, error: `Archive verification failed: ${err?.message || err}`, code: 'ARCHIVE_VERIFY_FAILED' };
+    }
+    const { chats: fullChats, ...card } = full;
+    const meta = {
+        v: ARCHIVE_FORMAT_VERSION,
+        chaId,
+        archivedAt,
+        name: typeof full.name === 'string' ? full.name : '',
+        image: typeof full.image === 'string' ? full.image : '',
+        bytes: encoded.length,
+        chatCount: Array.isArray(fullChats) ? fullChats.length : 0,
+        chatIds: (Array.isArray(fullChats) ? fullChats : []).map((c) => c?.id).filter((id) => typeof id === 'string'),
+        cardBytes: jsonLength(card),
+        chatBytes: jsonLength(fullChats),
+        // Same walker as the live sweep, so the two can never disagree
+        // about which fields hold asset references.
+        assetRefs: Array.from(buildUncleanableSet({ characters: [full] })),
+        // Inlay references of the archived chats, for /api/inlays/references.
+        inlayRefs: (() => { const counts = Object.create(null); addInlayRefCounts(counts, fullChats); return counts; })(),
+    };
+    kvSet(archiveMetaKey(chaId, archivedAt), Buffer.from(JSON.stringify(meta), 'utf-8'));
+    logger.info(`[Archive] deactivated ${chaId}@${archivedAt} (${encoded.length} bytes, ${meta.chatCount} chats, ${meta.assetRefs.length} asset refs)`);
+    return { ok: true, stub: buildArchivedCharacterStub(full, { archivedAt, bytes: encoded.length }) };
+}
+
 app.post('/api/characters/:chaId/archive', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     if (!checkActiveSession(req, res)) return;
@@ -6801,69 +6905,58 @@ app.post('/api/characters/:chaId/archive', async (req, res, next) => {
             if (!(await loadDbCacheIfMissing())) {
                 return res.status(404).json({ error: 'No database', code: 'ARCHIVE_NO_DB' });
             }
+            const result = await writeArchiveRow(dbCache[DB_HEX_KEY], chaId, {
+                acceptLostChats: req.body?.acceptLostChats === true,
+            });
+            if (!result.ok) {
+                const { ok: _ok, status, ...body } = result;
+                return res.status(status).json(body);
+            }
+            res.json({ ok: true, stub: result.stub });
+        });
+    } catch (err) { next(err); }
+});
+
+// Many characters in one request (bulk trash / deactivate from the character
+// manager): pending persists are flushed once for the whole request instead
+// of once per character — each flush rewrites all of database.bin — and each
+// character gets its own result. The client applies the successes to its
+// database and saves after every request, as for a single archive.
+const ARCHIVE_BATCH_MAX = 100;
+app.post('/api/characters/archive-batch', async (req, res, next) => {
+    if (!await checkAuth(req, res)) return;
+    if (!checkActiveSession(req, res)) return;
+    const chaIds = req.body?.chaIds;
+    if (!Array.isArray(chaIds) || chaIds.length === 0 || chaIds.length > ARCHIVE_BATCH_MAX
+        || chaIds.some((id) => typeof id !== 'string') || new Set(chaIds).size !== chaIds.length) {
+        return res.status(400).json({ error: `chaIds must be 1-${ARCHIVE_BATCH_MAX} distinct character ids`, code: 'ARCHIVE_BAD_BATCH' });
+    }
+    const acceptLostChats = req.body?.acceptLostChats === true;
+    try {
+        await queueStorageOperation(async () => {
+            await flushPendingDb();
+            if (!(await loadDbCacheIfMissing())) {
+                return res.status(404).json({ error: 'No database', code: 'ARCHIVE_NO_DB' });
+            }
             const db = dbCache[DB_HEX_KEY];
-            const character = (Array.isArray(db.characters) ? db.characters : []).find((c) => c?.chaId === chaId);
-            if (!character) {
-                return res.status(404).json({ error: 'Character not found', code: 'ARCHIVE_CHARACTER_NOT_FOUND' });
-            }
-            if (archivedStubsOf(db).some((s) => s.chaId === chaId)) {
-                return res.status(409).json({ error: 'Character is already deactivated', code: 'ARCHIVE_ALREADY' });
-            }
-            let full;
-            try {
-                full = await hydrateCharacterForArchive(character, {
-                    acceptLostChats: req.body?.acceptLostChats === true,
-                });
-            } catch (err) {
-                if (err?.code === 'ARCHIVE_CHATS_UNAVAILABLE') {
-                    return res.status(409).json({ error: err.message, code: err.code, chats: err.chats });
+            const results = [];
+            for (const chaId of chaIds) {
+                if (!isArchivableChaId(chaId)) {
+                    results.push({ chaId, ok: false, error: 'Invalid character id', code: 'ARCHIVE_BAD_ID' });
+                    continue;
                 }
-                throw err;
-            }
-            // The trash marker lives on the stub (`trashedAt`), never in the row:
-            // a legacy-trashed character migrating into the archive must come
-            // back clean when activated.
-            delete full.trashTime;
-            // New row per deactivation; never overwrite an existing version.
-            let archivedAt = Date.now();
-            while (kvSize(archiveKey(chaId, archivedAt)) || kvGet(archiveMetaKey(chaId, archivedAt))) archivedAt++;
-            const payload = { v: ARCHIVE_FORMAT_VERSION, chaId, archivedAt, character: full };
-            const encoded = Buffer.from(encodeRisuSaveLegacy(payload));
-            kvSet(archiveKey(chaId, archivedAt), encoded);
-            // Read back before anything depends on it: the next step (the client
-            // dropping the character from `characters`) is only safe if this
-            // row decodes to exactly what we hydrated.
-            try {
-                const verified = await decodeArchivePayload(chaId, archivedAt);
-                if (!verified || calculateHash(verified.payload.character) !== calculateHash(full)) {
-                    throw new Error('read-back does not match');
+                try {
+                    const { status: _status, ...result } = await writeArchiveRow(db, chaId, { acceptLostChats });
+                    results.push({ chaId, ...result });
+                } catch (error) {
+                    // One unreadable character must not cost the others their
+                    // results: a row it may have left stays unreferenced (and
+                    // young rows are never purged), the character stays active.
+                    logger.error(`[Archive] batch: ${chaId} failed:`, error?.message || error);
+                    results.push({ chaId, ok: false, code: 'ARCHIVE_FAILED', error: String(error?.message || error) });
                 }
-            } catch (err) {
-                kvDel(archiveKey(chaId, archivedAt));
-                logger.error(`[Archive] verification failed for ${chaId}:`, err?.message || err);
-                return res.status(500).json({ error: `Archive verification failed: ${err?.message || err}`, code: 'ARCHIVE_VERIFY_FAILED' });
             }
-            const { chats: fullChats, ...card } = full;
-            const meta = {
-                v: ARCHIVE_FORMAT_VERSION,
-                chaId,
-                archivedAt,
-                name: typeof full.name === 'string' ? full.name : '',
-                image: typeof full.image === 'string' ? full.image : '',
-                bytes: encoded.length,
-                chatCount: Array.isArray(fullChats) ? fullChats.length : 0,
-                chatIds: (Array.isArray(fullChats) ? fullChats : []).map((c) => c?.id).filter((id) => typeof id === 'string'),
-                cardBytes: jsonLength(card),
-                chatBytes: jsonLength(fullChats),
-                // Same walker as the live sweep, so the two can never disagree
-                // about which fields hold asset references.
-                assetRefs: Array.from(buildUncleanableSet({ characters: [full] })),
-                // Inlay references of the archived chats, for /api/inlays/references.
-                inlayRefs: (() => { const counts = Object.create(null); addInlayRefCounts(counts, fullChats); return counts; })(),
-            };
-            kvSet(archiveMetaKey(chaId, archivedAt), Buffer.from(JSON.stringify(meta), 'utf-8'));
-            logger.info(`[Archive] deactivated ${chaId}@${archivedAt} (${encoded.length} bytes, ${meta.chatCount} chats, ${meta.assetRefs.length} asset refs)`);
-            res.json({ ok: true, stub: buildArchivedCharacterStub(full, { archivedAt, bytes: encoded.length }) });
+            res.json({ ok: true, results });
         });
     } catch (err) { next(err); }
 });

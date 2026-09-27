@@ -547,6 +547,17 @@ export const languageEnglish = {
     deactivateCharacterLostChats: (name: string, count: number, list: string) =>
         `${count} chat(s) of "${name}" have no content on the server or in this browser, so they open as empty chats.\n\n${list}\n\nThey will be kept as empty chats. Deactivate?`,
     deactivateCharacterFailed: "Deactivation failed: ",
+    archiveSavePending: "Deactivated, but not saved to the server yet. Saving is retried automatically.",
+    bulkArchiveBusy: "Several characters are already being processed. Try again when that finishes.",
+    bulkArchiveProgress: (done: number, total: number, trash: boolean) =>
+        `${trash ? "Moving to trash" : "Deactivating"}… ${done}/${total}`,
+    bulkArchiveDone: (count: number, trash: boolean) =>
+        trash ? `Moved ${count} character(s) to the trash.` : `Deactivated ${count} character(s).`,
+    bulkArchiveFailed: (done: number, failed: number, list: string) =>
+        `${done} done, ${failed} failed. The failed characters were left as they were.\n\n${list}`,
+    bulkArchiveStopped: "Changes could not be saved to the server, so the remaining characters were not processed. The ones already done keep retrying to save automatically.",
+    bulkDeactivateLostChats: (count: number, list: string) =>
+        `${count} character(s) have chats with no content on the server or in this browser; they open as empty chats.\n\n${list}\n\nThose chats will be kept as empty chats. Deactivate these characters too?`,
     archiveSaveFailed: "recent changes could not be saved to the server, so it was stopped to keep them. Try again in a moment.",
     rebaseSkippedArchived: (names: string) =>
         `"${names}" was deactivated on another device, so this device's unsaved edits to it were discarded.`,

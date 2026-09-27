@@ -513,6 +513,13 @@ export const languageGerman = {
     "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
         `${count} Chat(s) von „${name}“ haben weder auf dem Server noch in diesem Browser Inhalt und öffnen sich als leere Chats.\n\n${list}\n\nSie werden als leere Chats aufbewahrt. Deaktivieren?`,
     "deactivateCharacterFailed": "Deaktivierung fehlgeschlagen: ",
+    "archiveSavePending": "Deaktiviert, aber noch nicht auf dem Server gespeichert. Das Speichern wird automatisch wiederholt.",
+    "bulkArchiveBusy": "Es werden bereits mehrere Charaktere verarbeitet. Bitte danach erneut versuchen.",
+    "bulkArchiveProgress": (done: number, total: number, trash: boolean) => `${trash ? "In den Papierkorb verschieben" : "Deaktivieren"}… ${done}/${total}`,
+    "bulkArchiveDone": (count: number, trash: boolean) => trash ? `${count} Charakter(e) in den Papierkorb verschoben.` : `${count} Charakter(e) deaktiviert.`,
+    "bulkArchiveFailed": (done: number, failed: number, list: string) => `${done} erledigt, ${failed} fehlgeschlagen. Die fehlgeschlagenen Charaktere bleiben unverändert.\n\n${list}`,
+    "bulkArchiveStopped": "Änderungen konnten nicht auf dem Server gespeichert werden, daher wurden die übrigen Charaktere nicht verarbeitet. Die bereits erledigten werden automatisch erneut gespeichert.",
+    "bulkDeactivateLostChats": (count: number, list: string) => `${count} Charakter(e) haben Chats ohne Inhalt – weder auf dem Server noch in diesem Browser; sie öffnen sich als leere Chats.\n\n${list}\n\nDiese Chats werden als leere Chats aufbewahrt. Diese Charaktere ebenfalls deaktivieren?`,
     "archiveSaveFailed": "die letzten Änderungen konnten nicht auf dem Server gespeichert werden; zu ihrem Schutz wurde abgebrochen. Bitte gleich noch einmal versuchen.",
     "activateCharacterConfirm": (name: string) => `„${name}“ ist deaktiviert. Aktivieren?`,
     "activateCharacterMissing": "Die gespeicherten Charakterdaten wurden nicht gefunden, daher ist keine Aktivierung möglich. Serverprotokoll und Speicher-Dashboard prüfen.",
