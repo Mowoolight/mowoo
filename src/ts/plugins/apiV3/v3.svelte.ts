@@ -5,7 +5,7 @@ import { SafeLocalPluginStorage, tagWhitelist } from "../pluginSafeClass";
 import { recordOwner, removeOwner, clearOwners } from "../pluginStorageMeta";
 import * as pluginStorageStore from "../pluginStorageStore";
 import DOMPurify from 'dompurify';
-import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
+import { additionalChatMenu, additionalFloatingActionButtons, additionalHamburgerMenu, additionalSettingsMenu, alertStore as alertStateStore, bodyIntercepterStore, chatPanelStore, DBState, selectedCharID, type MenuDef } from "src/ts/stores.svelte";
 import { v4 } from "uuid";
 import { sleep } from "src/ts/util";
 import { alertConfirm, alertError, alertNormal, alertNormalWait } from "src/ts/alert";
@@ -609,6 +609,27 @@ async function ensurePluginPermissionStateLoaded() {
     await pluginPermissionLoadPromise
 }
 
+// A fullscreen plugin frame sits above the whole app (z-index 1000), which
+// also covered the app's own alerts — among them the permission prompt the
+// plugin itself is waiting on, so it could hang forever. While an alert is
+// open the frame drops below the alert layer (z-50).
+const fullscreenPluginFrames = new Set<HTMLIFrameElement>()
+let appAlertOpen = false
+let alertLayerWatched = false
+
+function applyFullscreenFrameLayer(iframe: HTMLIFrameElement) {
+    iframe.style.zIndex = appAlertOpen ? "40" : "1000"
+}
+
+function watchAlertLayer() {
+    if (alertLayerWatched) return
+    alertLayerWatched = true
+    alertStateStore.subscribe((alert) => {
+        appAlertOpen = alert.type !== 'none'
+        for (const frame of fullscreenPluginFrames) applyFullscreenFrameLayer(frame)
+    })
+}
+
 export async function resetAllPluginPermissions() {
     permissionGivenPlugins.clear()
     permissionDeniedPlugins.clear()
@@ -1167,7 +1188,9 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
                     iframe.style.width = "100%";
                     iframe.style.height = "100%";
                     iframe.style.border = "none";
-                    iframe.style.zIndex = "1000";
+                    fullscreenPluginFrames.add(iframe);
+                    watchAlertLayer();
+                    applyFullscreenFrameLayer(iframe);
                     break;
                 }
                 default: {
@@ -1177,6 +1200,7 @@ const makeRisuaiAPIV3 = (iframe:HTMLIFrameElement,plugin:RisuPlugin) => {
         },
         hideContainer: () => {
             iframe.style.display = "none";
+            fullscreenPluginFrames.delete(iframe);
         },
         getRootDocument: async () => {
             const conf = await getPluginPermission(plugin.name, 'mainDom');

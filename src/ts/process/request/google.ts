@@ -705,7 +705,9 @@ async function requestGoogle(url:string, body:any, headers:{[key:string]:string}
             saveSignature: arg.saveSignatures ?? false
         }) 
 
-        f.body.pipeTo(transtream.writable)
+        // An abort errors the body mid-pipe; the readable side already
+        // carries that error to the consumer, so only the pipe promise is caught.
+        f.body.pipeTo(transtream.writable).catch(() => {})
 
         return {
             type: 'streaming',
@@ -769,7 +771,7 @@ async function requestGoogle(url:string, body:any, headers:{[key:string]:string}
 
                 if(part.inlineData){
                     const imgHTML = new Image()
-                    const id = crypto.randomUUID()
+                    const id = v4()
 
                     if(part.inlineData.mimeType.startsWith('image/')){
 
@@ -1295,7 +1297,7 @@ function wrapToolStream(
                             modelInfo: arg.modelInfo,
                             saveSignature: arg.saveSignatures ?? false
                         })
-                        resRec.body.pipeTo(transtream.writable)
+                        resRec.body.pipeTo(transtream.writable).catch(() => {})
 
                         reader = transtream.readable.getReader()
 

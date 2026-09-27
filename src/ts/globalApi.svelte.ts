@@ -5,7 +5,7 @@ import { get } from "svelte/store";
 import streamSaver from 'streamsaver';
 import { setDatabase, type Database, defaultSdDataFunc, getDatabase, appVer, nodeOnlyVer, getCurrentCharacter, loadTogglesFromChat } from "./storage/database.svelte";
 import { checkRisuUpdate } from "./update";
-import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, loadingOverlayStore, chatDeselected } from "./stores.svelte";
+import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingStatusState, selIdState, ReloadGUIPointer, bodyIntercepterStore, claimLoadingOverlay, chatDeselected } from "./stores.svelte";
 import { recordDbTransferSize } from "./transferSize";
 import { newSaveTiming, recordSaveSample, type SaveOutcome, type SaveTiming } from "./storage/saveMetrics";
 import { loadPlugins } from "./plugins/plugins.svelte";
@@ -1653,15 +1653,18 @@ export async function saveDb() {
                     return
                 }
                 savetrys += 1
-                if (savetrys > 4) {
-                    alertError(error)
-                    savetrys = 0
-                }
-                else {
-                    console.error(error)
+                console.error(error)
+                if (savetrys < 5) {
                     await sleep(Math.min(500 * savetrys, 3000))
-                    changed = true
+                } else {
+                    // Keep retrying: the changes are requeued, but nothing
+                    // else would start another save until the next edit.
+                    // The wait runs outside saveInFlight so flushSaves is not
+                    // held up by it, and the alert shows once per failure run.
+                    if (savetrys === 5) alertError(error)
+                    saveRetryAt = Date.now() + Math.min(5000 * (savetrys - 4), 30000)
                 }
+                changed = true
             } finally {
                 saving.state = false
                 saveInFlight = null
@@ -1703,12 +1706,14 @@ export async function saveDb() {
     }
 
     let savetrys = 0
+    // After repeated failures the loop waits until this time before retrying.
+    let saveRetryAt = 0
 
     let consecutiveRetries = 0
 
     const MAX_CONSECUTIVE_SAVE_RETRIES = 5
     while (true) {
-        if (!changed) {
+        if (!changed || Date.now() < saveRetryAt) {
             await sleep(200)
             continue
         }
@@ -3400,18 +3405,18 @@ export function changeChatTo(IdOrIndex: string | number) {
         if(newChat._placeholder){
             const capturedIndex = index
             let cancelled = false
-            loadingOverlayStore.set({ active: true, text: language.loading ?? '', onCancel: () => {
+            const releaseOverlay = claimLoadingOverlay(language.loading ?? '', () => {
                 cancelled = true
                 chatDeselected.set(true)
-                loadingOverlayStore.set({ active: false, text: '', onCancel: null })
-            }})
+                releaseOverlay()
+            })
             void ensureChatHydrated(char.chats, capturedIndex, char.chaId).then((hydrated) => {
                 if(cancelled) return
                 if(hydrated && char.chatPage === capturedIndex) loadTogglesFromChat(hydrated)
             }).catch((e) => {
                 console.error('[changeChatTo] hydration failed:', e)
             }).finally(() => {
-                if(!cancelled) loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+                if(!cancelled) releaseOverlay()
             })
         } else {
             loadTogglesFromChat(newChat)

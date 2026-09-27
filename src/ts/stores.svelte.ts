@@ -1,4 +1,4 @@
-import { writable } from "svelte/store";
+import { get, writable } from "svelte/store";
 import { MEMORY_PRESET_DEFAULT, MEMORY_PRESET_OFF, getMemoryPreset, resolveMemoryPresetId, setChatMemoryPreset } from './process/memory/memoryPresets'
 import type { character, Database } from "./storage/database.svelte";
 import { type simpleCharacterArgument } from "./parser/parser.svelte";
@@ -190,11 +190,27 @@ export const loadingOverlayStore = writable<{
     active: boolean,
     text: string,
     onCancel?: (() => void) | null,
+    owner?: symbol,
 }>({
     active: false,
     text: '',
     onCancel: null,
 })
+
+/**
+ * Show the overlay for one operation. The returned function hides it only
+ * while that operation still owns it, so a slow earlier load finishing late
+ * cannot hide the overlay of the load that replaced it.
+ */
+export function claimLoadingOverlay(text: string, onCancel: (() => void) | null = null): () => void {
+    const owner = Symbol('loading-overlay')
+    loadingOverlayStore.set({ active: true, text, onCancel, owner })
+    return () => {
+        if (get(loadingOverlayStore).owner === owner) {
+            loadingOverlayStore.set({ active: false, text: '', onCancel: null })
+        }
+    }
+}
 
 export const QuickSettings = $state({
     open: false,

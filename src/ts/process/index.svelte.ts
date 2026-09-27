@@ -1947,14 +1947,17 @@ export async function sendChat(chatProcessIndex = -1,arg:{
 
     const igp = risuChatParser(DBState.db.igpPrompt ?? "")
 
-    if(igp){
+    // Stop can land while the output triggers above were still running.
+    if(igp && !abortSignal.aborted){
         const igpFormated = parseChatML(igp)
         const rq = await requestChatData({
             formated: igpFormated,
             bias: {}
         },'emotion', abortSignal)
 
-        DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq
+        if(!abortSignal.aborted){
+            DBState.db.characters[selectedChar].chats[selectedChat].message[DBState.db.characters[selectedChar].chats[selectedChat].message.length - 1].data += rq
+        }
     }
 
     stageTimings.stage3Duration = Date.now() - stageTimings.stage3Start

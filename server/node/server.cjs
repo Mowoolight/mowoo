@@ -206,6 +206,11 @@ function getSnapshotLimits() {
 // Walk newest → oldest; keep within both limits, delete the rest. The most
 // recent snapshot is always kept (even if it alone exceeds the byte limit) so
 // we never end up with zero backups after a config change.
+// Snapshot a restore is reading from. The restore flushes a pending save
+// first, and that flush can take a new snapshot and trim the oldest one —
+// which may be the very snapshot being restored.
+let restoringSnapshotKey = null;
+
 function trimSnapshotsToLimits() {
     const { maxCount, maxBytes } = getSnapshotLimits();
     const pluginSize = snapshotPluginSizer();
@@ -228,6 +233,7 @@ function trimSnapshotsToLimits() {
         const isFirst = i === 0;
         const fitsByCount = i < maxCount;
         const fitsByBytes = runningBytes + e.size <= maxBytes;
+        if (e.key === restoringSnapshotKey) continue;
         if (isFirst || (fitsByCount && fitsByBytes)) {
             runningBytes += e.size;
         } else {
@@ -2116,6 +2122,15 @@ function createTimeoutController(timeoutMs) {
 // on purpose — thinking models stay silent for minutes before the first byte.
 const PROXY_IDLE_TIMEOUT_MS = 600000;
 
+// The client hanging up (Stop, closed tab) must cancel the upstream request.
+// Once the body streams, pipeline() tears the upstream down on its own; this
+// covers the wait before the first byte, which can run for minutes.
+function abortUpstreamOnClientClose(res, idle) {
+    res.on('close', () => {
+        if (!res.writableEnded) idle.abort();
+    });
+}
+
 function createIdleWatchdog(idleMs, totalSignal) {
     const controller = new AbortController();
     let timer = null;
@@ -2130,6 +2145,7 @@ function createIdleWatchdog(idleMs, totalSignal) {
     return {
         signal: controller.signal,
         idle: () => firedIdle,
+        abort: () => controller.abort(),
         touch: arm,
         // Resets the idle timer on every chunk that flows through the relay.
         transform: () => new Transform({
@@ -3235,6 +3251,7 @@ const reverseProxyFunc = async (req, res, next) => {
     // (localNetworkTimeoutSec up to 3600s) must not be undercut by it.
     const idleMs = Math.max(PROXY_IDLE_TIMEOUT_MS, timeoutMs || 0);
     const idle = createIdleWatchdog(idleMs, timeout.signal);
+    abortUpstreamOnClientClose(res, idle);
     let originalResponse;
     try {
     const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
@@ -3303,6 +3320,8 @@ const reverseProxyFunc = async (req, res, next) => {
     }
     catch (err) {
         if (err?.name === 'AbortError') {
+            // The client left; there is no one to send an error to.
+            if (res.destroyed) return;
             if (!res.headersSent) {
                 res.status(504).send({
                     error: idle.idle()
@@ -3347,6 +3366,7 @@ const reverseProxyFunc_get = async (req, res, next) => {
     // (localNetworkTimeoutSec up to 3600s) must not be undercut by it.
     const idleMs = Math.max(PROXY_IDLE_TIMEOUT_MS, timeoutMs || 0);
     const idle = createIdleWatchdog(idleMs, timeout.signal);
+    abortUpstreamOnClientClose(res, idle);
     let originalResponse;
     try {
     const header = req.headers['risu-header'] ? JSON.parse(decodeURIComponent(req.headers['risu-header'])) : req.headers;
@@ -3391,6 +3411,8 @@ const reverseProxyFunc_get = async (req, res, next) => {
     }
     catch (err) {
         if (err?.name === 'AbortError') {
+            // The client left; there is no one to send an error to.
+            if (res.destroyed) return;
             if (!res.headersSent) {
                 res.status(504).send({
                     error: idle.idle()
@@ -8105,11 +8127,24 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
         if (!blob) {
             return res.status(404).json({ error: 'Snapshot not found' });
         }
+        let snapshotMissing = false;
         await queueStorageOperation(async () => {
-            // Drain any pending debounced persist first — same pattern as
-            // /api/db/optimize. Without this, an in-flight save could land
-            // after kvCopyValue and overwrite the restored snapshot.
-            await flushPendingDb();
+            restoringSnapshotKey = key;
+            try {
+                // Drain any pending debounced persist first — same pattern as
+                // /api/db/optimize. Without this, an in-flight save could land
+                // after kvCopyValue and overwrite the restored snapshot.
+                await flushPendingDb();
+            } finally {
+                restoringSnapshotKey = null;
+            }
+            // A delete may have run while this waited in the queue. Copying a
+            // missing snapshot is a silent no-op that would still wipe the
+            // live plugin storage below, so stop here instead.
+            if (kvSize(key) === null) {
+                snapshotMissing = true;
+                return;
+            }
             // Blob and plugin rows come back together: the live plugin set is
             // replaced by exactly the snapshot's (empty for a pre-split
             // snapshot, whose data the decode below re-splits from the blob).
@@ -8117,6 +8152,9 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
                 kvCopyValue(key, DB_BLOB_KEY);
                 pluginStorage.restoreFrom(snapshotPluginId(key));
             })();
+            // The flush above may have left one snapshot over the limits
+            // while the restored one was protected.
+            trimSnapshotsToLimits();
             invalidateDbCache();
             // Snapshot may pre-date the remote-block migration. Clear the marker
             // so migrateRemoteBlocksIfNeeded re-evaluates against the restored
@@ -8143,6 +8181,9 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
                 logger.warn('[Snapshot restore] post-restore decode failed:', e?.message || e);
             }
         });
+        if (snapshotMissing) {
+            return res.status(404).json({ error: 'Snapshot not found' });
+        }
         res.json({ ok: true });
     } catch (err) { next(err); }
 });

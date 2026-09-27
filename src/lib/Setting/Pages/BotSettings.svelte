@@ -10,7 +10,7 @@
     import { customProviderStore } from "src/ts/plugins/plugins.svelte";
     import { tokenizerList } from "src/ts/tokenizer";
     import ModelList from "src/lib/UI/ModelList.svelte";
-    import { PlusIcon, TrashIcon, TriangleAlertIcon, InfoIcon, ArrowRightIcon } from "@lucide/svelte";
+    import { PlusIcon, TrashIcon, TriangleAlertIcon, InfoIcon, ArrowRightIcon, DownloadIcon, HardDriveUploadIcon } from "@lucide/svelte";
     import ShAlert from "src/lib/UI/GUI/ShAlert.svelte";
     import ShButton from "src/lib/UI/GUI/ShButton.svelte";
     import { openSettings, SettingsRoute } from "src/ts/routing";
@@ -41,6 +41,17 @@
     import SeparateParametersSection from "./SeparateParametersSection.svelte";
     import AuxModelSelectors from './Model/AuxModelSelectors.svelte'
     import CustomModelsSettings from './Model/CustomModelsSettings.svelte'
+    import { downloadFile } from "src/ts/globalApi.svelte";
+    import { selectSingleFile } from "src/ts/util";
+    import { alertError } from "src/ts/alert";
+
+    // Generation reads each entry as [token string, finite weight].
+    function isBiasList(value: unknown): value is [string, number][] {
+        return Array.isArray(value) && value.every((entry) =>
+            Array.isArray(entry) && entry.length === 2
+            && typeof entry[0] === 'string'
+            && typeof entry[1] === 'number' && Number.isFinite(entry[1]))
+    }
     
     const openrouterPinnedItems: ModelGridPinnedItem[] = [
         { id: 'risu/free',       displayName: 'Free Auto',       providerName: 'Risu'       },
@@ -697,6 +708,60 @@
 
     <!-- Separate Parameters - handled by custom component -->
     <SeparateParametersSection />
+
+    <!-- Global bias is still applied to every request and saved in prompt
+         presets; its editor went missing when this menu was split. -->
+    <ShAccordion name="Bias" variant="card" class="mt-4">
+        <table class="contain w-full max-w-full tabler">
+            <tbody>
+            <tr>
+                <th class="font-medium">Bias <Help key="bias"/></th>
+                <th class="font-medium">{language.value}</th>
+                <th>
+                    <button class="font-medium cursor-pointer hover:text-primary w-full flex justify-center items-center" aria-label="add" onclick={() => {
+                        DBState.db.bias = [...(DBState.db.bias ?? []), ['', 0]]
+                    }}><PlusIcon /></button>
+                </th>
+            </tr>
+            {#if (DBState.db.bias ?? []).length === 0}
+                <tr>
+                    <td colspan="3" class="text-textcolor2">{language.noBias}</td>
+                </tr>
+            {/if}
+            {#each DBState.db.bias ?? [] as _bias, i}
+                <tr>
+                    <td class="font-medium truncate">
+                        <TextInput bind:value={DBState.db.bias[i][0]} fullwidth/>
+                    </td>
+                    <td class="font-medium truncate">
+                        <NumberInput bind:value={DBState.db.bias[i][1]} max={100} min={-101} fullwidth/>
+                    </td>
+                    <td>
+                        <button class="font-medium flex justify-center items-center h-full cursor-pointer hover:text-red-400 w-full" aria-label="remove" onclick={() => {
+                            DBState.db.bias = DBState.db.bias.filter((_, index) => index !== i)
+                        }}><TrashIcon /></button>
+                    </td>
+                </tr>
+            {/each}
+            </tbody>
+        </table>
+        <div class="text-textcolor2 mt-2 flex items-center gap-2">
+            <button class="font-medium cursor-pointer hover:text-textcolor" aria-label="export" onclick={() => {
+                downloadFile('bias.json', JSON.stringify(DBState.db.bias ?? [], null, 2))
+            }}><DownloadIcon /></button>
+            <button class="font-medium cursor-pointer hover:text-textcolor" aria-label="import" onclick={async () => {
+                const sel = await selectSingleFile(['json'])
+                if (!sel) return
+                try {
+                    const parsed = JSON.parse(new TextDecoder().decode(sel.data))
+                    if (!isBiasList(parsed)) throw new Error('invalid bias list')
+                    DBState.db.bias = parsed
+                } catch {
+                    alertError(language.errors.noData)
+                }
+            }}><HardDriveUploadIcon /></button>
+        </div>
+    </ShAccordion>
 {/if}
 
 {#if $BotSubmenuIndex === 2}
