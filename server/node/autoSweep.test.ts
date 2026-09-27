@@ -237,6 +237,26 @@ describe('/api/db/assets/auto-sweep', () => {
         expect(hasKey('remotes/orphan.local.bin.meta')).toBe(false)
     })
 
+    it('keeps a deactivated character\'s remote cache on a remote-only sweep', async () => {
+        await seedDb({
+            characters: [{ chaId: 'keep', image: 'assets/live.png', chats: [] }],
+            nodeOnlyArchivedCharacters: [{ chaId: 'resting', name: 'Resting', archivedAt: 1700000000000 }],
+        })
+        for (const chaId of ['keep', 'resting', 'gone']) {
+            await writeKey(`remotes/${chaId}.local.bin`, 'remote')
+            await writeKey(`remotes/${chaId}.local.bin.meta`, JSON.stringify({ lastUsed: Date.now() - 8 * DAY }))
+            setUpdatedAt(`remotes/${chaId}.local.bin`, Date.now() - 8 * DAY)
+        }
+
+        const res = await autoSweep(false)
+        expect(res.status).toBe(200)
+        const body = await res.json()
+        expect(body.remotesDeleted).toBe(2)
+        expect(hasKey('remotes/keep.local.bin')).toBe(true)
+        expect(hasKey('remotes/resting.local.bin')).toBe(true)
+        expect(hasKey('remotes/gone.local.bin')).toBe(false)
+    })
+
     it('refuses to purge when the reference scan returns no references', async () => {
         await seedDb({ characters: [] })
         await writeKey('assets/old.png', 'old')

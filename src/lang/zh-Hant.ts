@@ -1519,7 +1519,6 @@ export const languageChineseTraditional = {
     "serverBackupDownload": "下載",
     "serverBackupDelete": "刪除",
     "serverBackupRestoring": "正在從伺服器還原備份...",
-    "serverBackupDownloading": "正在下載備份...",
     "serverBackupDeleteConfirm": (filename: string) => `刪除備份「${filename}」？此操作無法撤銷。`,
     "serverBackupDeleteSuccess": "備份已刪除。",
     "pluginProviderNotFound": "偵測到未知外掛。請更換模型或啟用對應的外掛。",

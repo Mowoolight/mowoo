@@ -1181,6 +1181,13 @@ export const languageKorean = {
     "현재 탭이 비활성화되었습니다. OK를 누르면 탭이 다시 활성화됩니다.",
   sessionHandoffReload:
     "다른 기기에서 사용되어 최신 상태로 새로고침했어요.",
+  sessionUnsavedTitle: "다른 곳에서 저장 권한을 가져갔어요",
+  sessionUnsavedDetail:
+    "이 탭의 저장은 멈췄고, 아직 서버에 저장되지 않은 편집이 있어요. 새로고침하면 그 편집은 사라지고 최신 상태를 불러옵니다. 먼저 미저장 편집을 JSON 파일로 내려받아 두면 필요한 내용을 직접 옮겨 적을 수 있어요.",
+  sessionUnsavedDownload: "미저장 편집 내려받기",
+  sessionUnsavedReload: "편집을 버리고 새로고침",
+  sessionUnsavedPaused: "이 탭의 저장은 멈춘 상태예요. 편집 내용을 옮긴 뒤 새로고침하세요.",
+  backupBrowserDownloadStarted: "브라우저 다운로드로 백업을 받기 시작했어요. 진행 상황과 완료는 브라우저의 다운로드 목록에서 확인하세요.",
   addCharacter: "캐릭터 추가",
   importFromRealm: "RisuRealm에서 고르기",
   importFromRealmDesc:
@@ -1892,7 +1899,6 @@ export const languageKorean = {
   serverBackupDownload: "다운로드",
   serverBackupDelete: "삭제",
   serverBackupRestoring: "서버 백업에서 복원 중...",
-  serverBackupDownloading: "백업 다운로드 중...",
   serverBackupDeleteConfirm: (filename: string) =>
     `"${filename}" 백업을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
   serverBackupDeleteSuccess: "백업이 삭제되었습니다.",
@@ -2364,6 +2370,20 @@ export const languageKorean = {
   storageOrphanAutoClean: "부팅 시 자동 정리",
   storageOrphanAutoCleanDesc:
     "앱을 열 때마다 고아 미디어를 자동으로 지웁니다. 기본은 꺼짐 — 아직 알려지지 않은 참조까지 지울 수 있어 수동 정리를 권장합니다.",
+
+  storageSaveMetrics: "저장 성능",
+  storageSaveMetricsHeader: (n: number) => `이 탭의 최근 ${n}회`,
+  storageSaveMetricsDesc:
+    "이 탭에서 최근 저장에 걸린 시간입니다. 저장이 느리거나 자주 실패하면 '진단 복사' 내용을 제보에 함께 붙여 주세요. 경로·이름·내용은 들어가지 않습니다.",
+  storageSaveMetricsEmpty: "아직 저장 기록이 없습니다. 편집하면 여기에 쌓입니다.",
+  storageSaveMetricsCounts: "저장 방식",
+  storageSaveMetricsCountsValue: (patch: number, full: number, retry: number, error: number) =>
+    `부분 ${patch} · 전체 ${full} · 재시도 ${retry} · 실패 ${error}`,
+  storageSaveMetricsTime: "저장 시간 (중앙값 / 상위 10%)",
+  storageSaveMetricsServer: "서버 처리 (중앙값)",
+  storageSaveMetricsQueue: "서버 대기열 대기 (중앙값)",
+  storageSaveMetricsPersist: "마지막 디스크 기록",
+  storageSaveMetricsCopy: "진단 복사",
 
   storageWalCleanup: "WAL 수동 정리",
   storageWalCleanupHeader: (walSize: number) =>

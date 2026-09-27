@@ -985,9 +985,14 @@ function findStubFlagLossChats(fullDb) {
 /**
  * Persist dbCache to disk with full chats merged back in.
  */
+// Duration of the last successful debounced database write, reported with
+// /api/patch responses for the client's save dashboard.
+let lastDbPersistMs = null;
+
 async function persistDbCacheWithChats(filePath, decodedKey) {
     const strippedDb = dbCache[filePath];
     if (!strippedDb) return;
+    const persistStartedAt = performance.now();
     await ensureChatStore();
     let fullDb = hydrateDatabaseForDisk(strippedDb);
 
@@ -1044,6 +1049,7 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     // would resurrect the cleared values until the next /api/read.
     if (decodedKey === 'database/database.bin') {
         initChatStore(fullDb);
+        lastDbPersistMs = Math.round(performance.now() - persistStartedAt);
     }
 }
 
@@ -1953,6 +1959,14 @@ function sessionAuthMiddleware(req, res, next) {
     const token = parseSessionCookie(req)
     if (token && (sessions.get(token) ?? 0) > Date.now()) return next()
     res.status(401).end()
+}
+
+// Backup GETs are also opened as plain browser downloads (<a download>), which
+// carry the session cookie (HttpOnly, SameSite=Strict) but no risu-auth header.
+async function checkBackupDownloadAuth(req, res) {
+    const token = parseSessionCookie(req)
+    if (token && (sessions.get(token) ?? 0) > Date.now()) return true
+    return checkAuth(req, res)
 }
 
 // MIME detection by magic bytes (fallback when key has no extension)
@@ -4514,8 +4528,18 @@ app.post('/api/patch', async (req, res, next) => {
     // Which step of the patch flow was running when the outer catch fired —
     // without it a bare error name (e.g. RangeError) is undiagnosable.
     let patchStage = 'load';
+    // Stage timings for the client's save dashboard (see saveMetrics.ts).
+    const patchStartedAt = performance.now();
     try {
         await queueStorageOperation(async () => {
+            const timings = { queueMs: Math.round(performance.now() - patchStartedAt) };
+            let stageAt = performance.now();
+            const lap = () => {
+                const now = performance.now();
+                const ms = Math.round(now - stageAt);
+                stageAt = now;
+                return ms;
+            };
             const decodedKey = Buffer.from(filePath, 'hex').toString('utf-8');
 
             // Load database into memory if not already cached
@@ -4588,9 +4612,11 @@ app.post('/api/patch', async (req, res, next) => {
             }
 
             patchStage = 'hash';
+            lap();
             const serverHash = decodedKey === 'database/database.bin'
                 ? databasePatchHashCache.hash(dbCache[filePath]).toString(16)
                 : calculateHash(dbCache[filePath]).toString(16);
+            timings.hashMs = lap();
 
             if (expectedHash !== serverHash) {
                 logger.warn(`[Patch] Hash mismatch for ${decodedKey}: expected=${expectedHash}, server=${serverHash}`);
@@ -4794,16 +4820,22 @@ app.post('/api/patch', async (req, res, next) => {
                 if (failed && decodedKey === 'database/database.bin') retryDatabasePersistLater('patch');
             }, SAVE_INTERVAL);
 
+            timings.applyMs = lap();
+
             // Update ETag after successful patch (based on stripped version)
             patchStage = 'etag';
             if (decodedKey === 'database/database.bin') {
                 dbEtag = computeBufferEtag(Buffer.from(encodeRisuSaveLegacy(dbCache[filePath])));
             }
+            timings.etagMs = lap();
+            timings.totalMs = Math.round(performance.now() - patchStartedAt);
+            if (lastDbPersistMs !== null) timings.lastPersistMs = lastDbPersistMs;
 
             const responsePayload = {
                 success: true,
                 appliedOperations: result.length + pluginKvOps.length,
                 etag: decodedKey === 'database/database.bin' ? dbEtag : undefined,
+                timings,
             };
             const persistWarning = currentPersistWarning();
             if (persistWarning) {
@@ -5187,7 +5219,7 @@ app.get('/api/backup/export/settings-estimate', async (req, res, next) => {
 });
 
 app.get('/api/backup/export', async (req, res, next) => {
-    if(!await checkAuth(req, res)){ return; }
+    if(!await checkBackupDownloadAuth(req, res)){ return; }
     try {
         // ?target=upstream excludes NodeOnly-only inlay namespaces (inlay/,
         // inlay_sidecar/, inlay_meta/). Their entry names contain a slash,
@@ -5730,7 +5762,7 @@ app.delete('/api/backup/server/:filename', async (req, res, next) => {
 
 // Download a server backup file
 app.get('/api/backup/server/download/:filename', async (req, res, next) => {
-    if (!await checkAuth(req, res)) { return; }
+    if (!await checkBackupDownloadAuth(req, res)) { return; }
     try {
         const filename = req.params.filename;
         if (!BACKUP_FILENAME_REGEX.test(filename)) {
@@ -7305,34 +7337,46 @@ function decodeRemoteMetaLastUsed(raw) {
 }
 
 async function computeAssetSweep({ includeAssets, assetGraceMs = 0, includeRemotes = false, checkpointLabel = 'AssetSweep' } = {}) {
-    await flushPendingDb();
-    const raw = kvGet(DB_BLOB_KEY);
-    if (!raw) return { error: 'No database blob' };
-    const dbObj = await decodeRisuSave(raw);
-    if (!dbObj || !Array.isArray(dbObj.characters)) return { error: 'Database decode failed' };
-
-    const uncleanable = buildUncleanableSet(dbObj);
+    let dbObj;
     const assets = includeAssets ? kvListWithSizesAndUpdatedAt('assets/') : [];
+    const uncleanable = new Set();
+    if (includeAssets) {
+        await flushPendingDb();
+        const raw = kvGet(DB_BLOB_KEY);
+        if (!raw) return { error: 'No database blob' };
+        dbObj = await decodeRisuSave(raw);
+        if (!dbObj || !Array.isArray(dbObj.characters)) return { error: 'Database decode failed' };
 
-    try {
-        addLiveManifestRefs(uncleanable, dbObj);
-    } catch (error) {
-        return { error: `Manifest reference scan failed — refusing to purge: ${error?.message || error}` };
-    }
-    try {
-        addArchivedCharacterRefs(uncleanable, dbObj);
-    } catch (error) {
-        return { error: `Deactivated-character reference scan failed — refusing to purge: ${error?.message || error}` };
-    }
+        for (const bn of buildUncleanableSet(dbObj)) uncleanable.add(bn);
+        try {
+            addLiveManifestRefs(uncleanable, dbObj);
+        } catch (error) {
+            return { error: `Manifest reference scan failed — refusing to purge: ${error?.message || error}` };
+        }
+        try {
+            addArchivedCharacterRefs(uncleanable, dbObj);
+        } catch (error) {
+            return { error: `Deactivated-character reference scan failed — refusing to purge: ${error?.message || error}` };
+        }
 
-    // A walker that returns nothing while assets exist means the decode
-    // produced a shape we do not understand — every asset would look orphaned.
-    // Refuse rather than delete the library. Checked before plugin-storage refs
-    // are unioned in so those can't mask a bad walk.
-    if (uncleanable.size === 0 && assets.length > 0) {
-        return { error: 'Reference scan produced no references — refusing to purge' };
+        // A walker that returns nothing while assets exist means the decode
+        // produced a shape we do not understand — every asset would look orphaned.
+        // Refuse rather than delete the library. Checked before plugin-storage refs
+        // are unioned in so those can't mask a bad walk.
+        if (uncleanable.size === 0 && assets.length > 0) {
+            return { error: 'Reference scan produced no references — refusing to purge' };
+        }
+        for (const bn of collectPluginStorageAssetRefs()) uncleanable.add(bn);
+    } else {
+        // Remote-only sweep (the boot auto-sweep with asset cleanup off): it
+        // needs only the live and deactivated chaIds. The stripped dbCache
+        // holds both and is at least as fresh as disk, so skip the flush,
+        // the full blob decode and every asset reference scan — on a large
+        // save those ran inside the storage queue and held up saves at boot.
+        if (!(await loadDbCacheIfMissing())) return { error: 'No database blob' };
+        dbObj = dbCache[DB_HEX_KEY];
+        if (!dbObj || !Array.isArray(dbObj.characters)) return { error: 'Database decode failed' };
     }
-    for (const bn of collectPluginStorageAssetRefs()) uncleanable.add(bn);
 
     const now = Date.now();
     const assetVictims = includeAssets
