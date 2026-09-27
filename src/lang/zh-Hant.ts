@@ -534,13 +534,15 @@ export const languageChineseTraditional = {
     "deactivateCharacterConfirm": (name: string) => `停用「${name}」及其聊天記錄？\n\n它仍會顯示在列表中但無法開啟，外掛、腳本、搜尋與資料集匯出會將其視為已刪除。資料保留在伺服器上，隨時可以重新啟用。`,
     "deactivateCharacterDone": "角色已停用。",
     "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
-        `「${name}」的 ${count} 個聊天在伺服器上已沒有內容。它們在舊版本中遺失，現在開啟也是空的。\n\n${list}\n\n這些聊天將以空聊天保存。要停用嗎？`,
+        `「${name}」的 ${count} 個聊天在伺服器和此瀏覽器中都沒有內容，開啟後顯示為空聊天。\n\n${list}\n\n這些聊天將以空聊天保存。要停用嗎？`,
     "deactivateCharacterFailed": "停用失敗：",
+    "archiveSaveFailed": "最近的變更未能儲存到伺服器，為保護這些變更已中止。請稍後再試。",
     "rebaseSkippedArchived": (names: string) =>
         `「${names}」已在其他裝置上停用，因此本裝置尚未儲存的變更已被捨棄。`,
     "activateCharacterConfirm": (name: string) => `「${name}」已停用。要重新啟用嗎？`,
     "activateCharacterMissing": "找不到已儲存的角色資料，無法啟用。請檢查伺服器日誌與儲存空間面板。",
     "activateCharacterFailed": "啟用失敗：",
+    "activateCharacterAlreadyActive": "伺服器上此角色已是啟用狀態。請重新整理頁面。",
     "activateCharacterRemoveStub": "要從列表中移除此角色嗎？（不會刪除其他資料）",
     "deactivatedBadge": "已停用",
     "hideDeactivatedCharacters": "隱藏已停用的角色",

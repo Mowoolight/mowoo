@@ -654,6 +654,8 @@ export function createBlankChar():character{
             note: '',
             name: 'Chat 1',
             localLore: [],
+            // An id from the start: the save path uploads only chats that have one.
+            id: v4(),
             ...newChatModelDefaults()
         }],
         chatFolders: [],

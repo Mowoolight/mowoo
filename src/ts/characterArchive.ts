@@ -17,11 +17,12 @@ import { get } from "svelte/store"
 import { language } from "src/lang"
 import { alertConfirm, alertError, notifySuccess } from "./alert"
 import { changeChar, deselectCharacter } from "./characters"
-import { checkCharOrder, forageStorage, requestImmediateSave, requiresFullEncoderReload } from "./globalApi.svelte"
+import { checkCharOrder, flushSaves, forageStorage, requestImmediateSave, requiresFullEncoderReload, trackCharacterForSave } from "./globalApi.svelte"
 import { DBState, loadingOverlayStore, selectedCharID } from "./stores.svelte"
 import { convertStubsToPlaceholders } from "./storage/chatStorage"
 import type { ArchivedCharacterStub, character } from "./storage/database.svelte"
 import { CharacterArchiveError, type NodeStorage } from "./storage/nodeStorage"
+import { v4 } from "uuid"
 
 export { CharacterArchiveError }
 
@@ -61,8 +62,7 @@ function bulletList(names: string[], max = 5): string {
  * Returns true when the character was deactivated.
  */
 export async function archiveCharacter(index: number, arg: { skipConfirm?: boolean; trash?: boolean; trashedAt?: number; silent?: boolean } = {}): Promise<boolean> {
-    const db = DBState.db
-    const char = db.characters[index]
+    const char = DBState.db.characters[index]
     if (!char?.chaId) return false
     const name = char.name || 'Unnamed'
     // skipConfirm: bulk callers (character manager) confirm once for the whole set.
@@ -74,11 +74,24 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
     // this build) are stored as the empty chats they already show as. The
     // trash accepts that outright; a deactivation asks first.
     const run = async (acceptLostChats: boolean) => {
-        // The server builds the payload from its own view; push any edits
-        // still sitting in the client's debounce first so nothing is lost.
-        await requestImmediateSave()
+        // A chat without an id is never uploaded by the save path; give it
+        // one so its body reaches the server with the save below.
+        let assignedIds = false
+        for (const chat of char.chats ?? []) {
+            if (chat && !chat._placeholder && !chat.id) {
+                chat.id = v4()
+                assignedIds = true
+            }
+        }
+        if (assignedIds) trackCharacterForSave(char.chaId)
+        // The server builds the payload from its own view: every edit (and
+        // every chat body this browser holds) must have reached it first,
+        // or the archived copy would silently miss them.
+        if (!await flushSaves()) throw new Error(language.archiveSaveFailed)
         const stub = await storage().archiveCharacter(char.chaId, { acceptLostChats })
-        // Re-resolve: the array may have shifted while the server worked.
+        // Re-resolve both: a save above may have rebased the database object,
+        // and the array may have shifted while the server worked.
+        const db = DBState.db
         const idx = db.characters.findIndex((c) => c?.chaId === char.chaId)
         if (idx === -1) return false
         if (!Array.isArray(db.nodeOnlyArchivedCharacters)) db.nodeOnlyArchivedCharacters = []
@@ -93,7 +106,10 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
         // character itself loses the selection. Indices after `idx` shift by one.
         if (selectedIndex === idx || selectedIndex < 0) deselectCharacter()
         else if (selectedIndex > idx) selectedCharID.set(selectedIndex - 1)
-        void requestImmediateSave()
+        // Until this save lands the server still sees the character active.
+        // The overlay stays up meanwhile; activation also waits for it.
+        if (arg.silent) void requestImmediateSave()
+        else await flushSaves()
         if (!arg.silent) notifySuccess(arg.trash ? language.trashCharacterDone : language.deactivateCharacterDone)
         return true
     }
@@ -120,10 +136,9 @@ export async function archiveCharacter(index: number, arg: { skipConfirm?: boole
  * nothing to activate. Throws CharacterArchiveError on server failure.
  */
 export async function activateCharacter(chaId: string): Promise<number> {
-    const db = DBState.db
-    const list = db.nodeOnlyArchivedCharacters ?? []
+    const list = DBState.db.nodeOnlyArchivedCharacters ?? []
     const stubIndex = list.findIndex((s) => s?.chaId === chaId)
-    const existing = db.characters.findIndex((c) => c?.chaId === chaId)
+    const existing = DBState.db.characters.findIndex((c) => c?.chaId === chaId)
     if (existing !== -1) {
         // Already active (e.g. another device activated it): just drop the stub.
         if (stubIndex !== -1) list.splice(stubIndex, 1)
@@ -131,17 +146,33 @@ export async function activateCharacter(chaId: string): Promise<number> {
     }
     if (stubIndex === -1) return -1
 
+    // Name the exact row this stub was made with (rows are versioned).
+    const archivedAt = list[stubIndex]?.archivedAt
     let restored: character
     try {
-        // Name the exact row this stub was made with (rows are versioned).
-        restored = await storage().activateCharacter(chaId, list[stubIndex]?.archivedAt)
+        restored = await storage().activateCharacter(chaId, archivedAt)
     } catch (error) {
-        if (error instanceof CharacterArchiveError && error.code === 'ARCHIVE_ALREADY_ACTIVE') {
-            // Server has it active but our view does not — rebase will bring it; drop the stub.
-            list.splice(stubIndex, 1)
-            return -1
+        if (!(error instanceof CharacterArchiveError && error.code === 'ARCHIVE_ALREADY_ACTIVE')) throw error
+        // Usually our own deactivation has not reached the server yet: it
+        // still lists the character as active. Dropping the stub here used to
+        // make the save that followed delete the character outright. Finish
+        // saving, then ask again; the stub stays whatever happens.
+        if (!await flushSaves()) throw new CharacterArchiveError(error.code, language.archiveSaveFailed)
+        try {
+            restored = await storage().activateCharacter(chaId, archivedAt)
+        } catch (retryError) {
+            if (retryError instanceof CharacterArchiveError && retryError.code === 'ARCHIVE_ALREADY_ACTIVE') {
+                throw new CharacterArchiveError(retryError.code, language.activateCharacterAlreadyActive)
+            }
+            throw retryError
         }
-        throw error
+    }
+    // Re-read: a save while we waited may have rebased the database object.
+    const db = DBState.db
+    if (db.characters.some((c) => c?.chaId === chaId)) {
+        const stubIdx = (db.nodeOnlyArchivedCharacters ?? []).findIndex((s) => s?.chaId === chaId)
+        if (stubIdx !== -1) db.nodeOnlyArchivedCharacters!.splice(stubIdx, 1)
+        return db.characters.findIndex((c) => c?.chaId === chaId)
     }
     // The server sends chats as stubs; the client works with placeholders
     // (same conversion bootstrap applies to the whole database).
