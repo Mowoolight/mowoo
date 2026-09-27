@@ -208,6 +208,7 @@ function getSnapshotLimits() {
 // we never end up with zero backups after a config change.
 function trimSnapshotsToLimits() {
     const { maxCount, maxBytes } = getSnapshotLimits();
+    const pluginSize = snapshotPluginSizer();
     // Size each snapshot by its marginal disk cost (chunks not shared with the
     // live blob), not its logical size — chunked snapshots share chunks, so a
     // logical measure would over-trim ones that cost almost nothing on disk.
@@ -216,7 +217,7 @@ function trimSnapshotsToLimits() {
             const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
             // Plugin bytes are marginal too: blobs only this snapshot references
             // (see plugin-storage-store.cjs snapshotBytes).
-            return { key, size: snapshotFootprint(key) + snapshotPluginBytes(key), ts: Number.isFinite(tsRaw) ? tsRaw : 0 };
+            return { key, size: snapshotFootprint(key) + pluginSize(key).bytes, ts: Number.isFinite(tsRaw) ? tsRaw : 0 };
         })
         .sort((a, b) => b.ts - a.ts);
 
@@ -242,7 +243,7 @@ function trimSnapshotsToLimits() {
 // the split has run, so every snapshot also carries a content-addressed map
 // of the plugin-storage/ rows (see plugin-storage-store.cjs snapshotTo).
 // These helpers keep the two halves created, sized, deleted and restored
-// together. snapshotPluginBytes is the marginal cost (blobs only that
+// together. snapshotPluginSizer gives the marginal cost (blobs only that
 // snapshot references + its map row); dropping a snapshot GCs its unique
 // blobs in the same transaction.
 // Only the exact `database/dbbackup-<digits>.bin` shape names a snapshot. A
@@ -258,8 +259,11 @@ function snapshotPluginId(key) {
     return m[1];
 }
 
-function snapshotPluginBytes(key) {
-    return pluginStorage.snapshotBytes(snapshotPluginId(key));
+// Sizes the plugin halves of all snapshots in one pass and returns
+// key → { bytes, logicalBytes }; bytes is the marginal cost.
+function snapshotPluginSizer() {
+    const sizeOf = pluginStorage.snapshotSizer();
+    return (key) => sizeOf(snapshotPluginId(key));
 }
 
 function deleteSnapshot(key) {
@@ -281,11 +285,12 @@ function listSnapshotKeys() {
 
 function snapshotUsage() {
     const keys = listSnapshotKeys();
+    const pluginSize = snapshotPluginSizer();
     let bytes = 0, logicalBytes = 0;
     for (const k of keys) {
-        const id = snapshotPluginId(k);
-        bytes += snapshotFootprint(k) + pluginStorage.snapshotBytes(id);
-        logicalBytes += (kvSize(k) || 0) + pluginStorage.snapshotLogicalBytes(id);
+        const plugin = pluginSize(k);
+        bytes += snapshotFootprint(k) + plugin.bytes;
+        logicalBytes += (kvSize(k) || 0) + plugin.logicalBytes;
     }
     return { count: keys.length, bytes, logicalBytes };
 }
@@ -7514,8 +7519,9 @@ app.get('/api/db/stats', async (req, res, next) => {
         const backupKeys = kvList(DB_BACKUP_PREFIX);
         let backupTotal = 0;
         let backupOldest = null, backupNewest = null;
+        const pluginSize = snapshotPluginSizer();
         for (const k of backupKeys) {
-            const sz = (kvSize(k) || 0) + snapshotPluginBytes(k);
+            const sz = (kvSize(k) || 0) + (isSnapshotKey(k) ? pluginSize(k).bytes : 0);
             backupTotal += sz;
             const tsRaw = parseInt(k.slice(DB_BACKUP_PREFIX.length, -4), 10);
             if (Number.isFinite(tsRaw)) {
@@ -8008,6 +8014,7 @@ app.put('/api/db/snapshots/limits', async (req, res, next) => {
 app.get('/api/db/snapshots', async (req, res, next) => {
     if (!await checkAuth(req, res)) return;
     try {
+        const pluginSize = snapshotPluginSizer();
         const out = listSnapshotKeys().map((key) => {
             const tsRaw = parseInt(key.slice(DB_BACKUP_PREFIX.length, -4), 10);
             const ts = Number.isFinite(tsRaw) ? tsRaw * 100 : null;
@@ -8017,7 +8024,7 @@ app.get('/api/db/snapshots', async (req, res, next) => {
             // (kvSize reassembles via the manifest; the marker's 13 bytes are not
             // what a user wants to see for a full backup.) Trimming still sizes by
             // snapshotFootprint in db.cjs, so this display change can't over-trim.
-            return { key, size: (kvSize(key) || 0) + snapshotPluginBytes(key), timestamp: ts };
+            return { key, size: (kvSize(key) || 0) + pluginSize(key).bytes, timestamp: ts };
         }).sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
         res.json({ snapshots: out });
     } catch (err) { next(err); }

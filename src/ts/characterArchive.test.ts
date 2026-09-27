@@ -58,7 +58,7 @@ vi.mock('src/lang', () => ({
     language: new Proxy({}, { get: (_t, key) => typeof key === 'string' && /(Confirm|Progress)$/.test(key) ? () => String(key) : String(key) }),
 }))
 
-const { activateCharacter, archiveCharacter, archiveCharacters } = await import('./characterArchive')
+const { activateCharacter, archiveCharacter, archiveCharacters, restoreTrashedCharacter, trashDeactivatedCharacter } = await import('./characterArchive')
 
 const stub = { chaId: 'c1', name: 'One', archivedAt: 1000 }
 const restored = () => ({ chaId: 'c1', name: 'One', chats: [{ id: 'x', name: 'Chat', _stub: true }] })
@@ -229,3 +229,56 @@ describe('archiveCharacters (bulk)', () => {
     })
 })
 
+describe('trash keeps the folder', () => {
+    // checkCharOrder is mocked out here; the real one drops trashed ids from
+    // every folder, which `leaveOrder` stands in for.
+    const leaveOrder = (chaId: string) => {
+        for (const e of state.db.characterOrder) if (typeof e !== 'string') e.data = e.data.filter((id: string) => id !== chaId)
+    }
+
+    test('restoring puts the character back into the folder it was trashed from', () => {
+        state.db = {
+            characters: [],
+            characterOrder: ['top', { id: 'F', name: 'F', data: ['c1', 'c2'], color: '' }],
+            nodeOnlyArchivedCharacters: [{ ...stub }, { chaId: 'top', name: 'Top', archivedAt: 1 }],
+        }
+        expect(trashDeactivatedCharacter('c1')).toBe(true)
+        expect(trashDeactivatedCharacter('top')).toBe(true)
+        expect(state.db.nodeOnlyArchivedCharacters[0].trashedFromFolder).toBe('F')
+        expect(state.db.nodeOnlyArchivedCharacters[1].trashedFromFolder).toBeUndefined()
+        leaveOrder('c1')
+
+        expect(restoreTrashedCharacter('c1')).toBe(true)
+        expect(state.db.characterOrder[1].data).toEqual(['c2', 'c1'])
+        expect(state.db.nodeOnlyArchivedCharacters[0].trashedAt).toBeUndefined()
+        expect(state.db.nodeOnlyArchivedCharacters[0].trashedFromFolder).toBeUndefined()
+    })
+
+    test('a folder deleted meanwhile is not recreated', () => {
+        state.db = {
+            characters: [],
+            characterOrder: [{ id: 'F', name: 'F', data: ['c1'], color: '' }],
+            nodeOnlyArchivedCharacters: [{ ...stub }],
+        }
+        trashDeactivatedCharacter('c1')
+        state.db.characterOrder = []
+        expect(restoreTrashedCharacter('c1')).toBe(true)
+        expect(state.db.characterOrder).toEqual([])
+    })
+
+    test('bulk trash records the folder of each character', async () => {
+        state.db = {
+            characters: [{ chaId: 'a', name: 'A', chats: [] }, { chaId: 'b', name: 'B', chats: [] }],
+            characterOrder: ['a', { id: 'F', name: 'F', data: ['b'], color: '' }],
+            nodeOnlyArchivedCharacters: [],
+        }
+        storage.archiveCharacters.mockResolvedValue([
+            { chaId: 'a', ok: true, stub: { chaId: 'a', archivedAt: 1 } },
+            { chaId: 'b', ok: true, stub: { chaId: 'b', archivedAt: 1 } },
+        ])
+        await archiveCharacters(['a', 'b'], { trash: true })
+        const byId = Object.fromEntries(state.db.nodeOnlyArchivedCharacters.map((s: any) => [s.chaId, s]))
+        expect(byId.a.trashedFromFolder).toBeUndefined()
+        expect(byId.b.trashedFromFolder).toBe('F')
+    })
+})
