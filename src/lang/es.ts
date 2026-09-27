@@ -1427,4 +1427,11 @@ export const languageSpanish = {
     exportSettingsReportDesc: "Descarga tus ajustes sin claves API, personajes ni otros datos privados, y los copia al portapapeles.",
     banCharactersetDesc: "Regenera automáticamente una respuesta que contenga alguno de los sistemas de escritura seleccionados.",
     inlayCompressAllDesc: "Vuelve a comprimir todas las imágenes insertadas guardadas para reducir el almacenamiento.",
+    advTabPrompt: "Prompt y generación",
+    advTabRequest: "Solicitud y modelo",
+    advTabAssets: "Pantalla y recursos",
+    advTabDev: "Desarrollo y experimental",
+    advSectionResponse: "Corrección de respuestas",
+    advSectionDevTools: "Herramientas de desarrollo",
+    advSectionExperimental: "Experimental",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

@@ -1427,4 +1427,11 @@ export const languageChinese = {
     exportSettingsReportDesc: "下载去除 API 密钥、角色等个人信息后的设置，并复制到剪贴板。",
     banCharactersetDesc: "回复中出现所选文字集时自动重新生成。",
     inlayCompressAllDesc: "重新压缩所有已保存的内嵌图片以减少存储空间。",
+    advTabPrompt: "提示词·生成",
+    advTabRequest: "请求·模型",
+    advTabAssets: "显示·资源",
+    advTabDev: "开发·实验",
+    advSectionResponse: "回复修正",
+    advSectionDevTools: "开发工具",
+    advSectionExperimental: "实验功能",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

@@ -1427,4 +1427,11 @@ export const languageVietnamese = {
     exportSettingsReportDesc: "Tải xuống cài đặt đã loại bỏ khóa API, nhân vật và dữ liệu riêng tư khác, đồng thời sao chép vào bộ nhớ tạm.",
     banCharactersetDesc: "Tự động tạo lại phản hồi có chứa bất kỳ hệ chữ nào đã chọn.",
     inlayCompressAllDesc: "Nén lại tất cả ảnh chèn đã lưu để giảm dung lượng lưu trữ.",
+    advTabPrompt: "Prompt & tạo",
+    advTabRequest: "Yêu cầu & mô hình",
+    advTabAssets: "Hiển thị & tài nguyên",
+    advTabDev: "Phát triển & thử nghiệm",
+    advSectionResponse: "Hiệu chỉnh phản hồi",
+    advSectionDevTools: "Công cụ phát triển",
+    advSectionExperimental: "Thử nghiệm",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

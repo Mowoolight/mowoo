@@ -2438,6 +2438,13 @@ export const languageEnglish = {
     exportSettingsReportDesc: "Downloads your settings without API keys, characters and other private data, and copies them to the clipboard.",
     banCharactersetDesc: "Automatically regenerates a response that contains any of the selected scripts.",
     inlayCompressAllDesc: "Recompresses every stored inlay image to reduce storage usage.",
+    advTabPrompt: "Prompt & Generation",
+    advTabRequest: "Request & Model",
+    advTabAssets: "Display & Assets",
+    advTabDev: "Developer & Experimental",
+    advSectionResponse: "Response Correction",
+    advSectionDevTools: "Developer Tools",
+    advSectionExperimental: "Experimental",
 } satisfies I18nTranslation;
 
 type I18nTranslationFunction = (...args: any[]) => string;

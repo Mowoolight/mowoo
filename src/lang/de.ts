@@ -1427,4 +1427,11 @@ export const languageGerman = {
     exportSettingsReportDesc: "Lädt deine Einstellungen ohne API-Schlüssel, Charaktere und andere private Daten herunter und kopiert sie in die Zwischenablage.",
     banCharactersetDesc: "Generiert eine Antwort automatisch neu, wenn sie eines der ausgewählten Schriftsysteme enthält.",
     inlayCompressAllDesc: "Komprimiert alle gespeicherten Inlay-Bilder neu, um Speicherplatz zu sparen.",
+    advTabPrompt: "Prompt & Generierung",
+    advTabRequest: "Anfrage & Modell",
+    advTabAssets: "Anzeige & Assets",
+    advTabDev: "Entwickler & Experimente",
+    advSectionResponse: "Antwortkorrektur",
+    advSectionDevTools: "Entwicklerwerkzeuge",
+    advSectionExperimental: "Experimentell",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>;

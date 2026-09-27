@@ -2655,4 +2655,11 @@ export const languageKorean = {
   exportSettingsReportDesc: "API 키·캐릭터 등 개인 정보를 뺀 설정을 파일로 받고 클립보드에 복사합니다.",
   banCharactersetDesc: "선택한 문자 집합이 섞인 응답을 받으면 자동으로 다시 생성합니다.",
   inlayCompressAllDesc: "저장된 모든 인레이 이미지를 다시 압축해 저장 용량을 줄입니다.",
+  advTabPrompt: "프롬프트·생성",
+  advTabRequest: "요청·모델",
+  advTabAssets: "화면·에셋",
+  advTabDev: "개발·실험",
+  advSectionResponse: "응답 보정",
+  advSectionDevTools: "개발 도구",
+  advSectionExperimental: "실험적 기능",
 } satisfies DeepPartial<typeof import("./en").languageEnglish>;

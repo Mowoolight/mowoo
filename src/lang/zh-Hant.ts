@@ -2385,4 +2385,11 @@ export const languageChineseTraditional = {
     "exportSettingsReportDesc": "下載移除 API 金鑰、角色等個人資訊後的設定，並複製到剪貼簿。",
     "banCharactersetDesc": "回覆中出現所選文字系統時自動重新生成。",
     "inlayCompressAllDesc": "重新壓縮所有已儲存的內嵌圖片以減少儲存空間。",
+    "advTabPrompt": "提示詞·生成",
+    "advTabRequest": "請求·模型",
+    "advTabAssets": "顯示·資源",
+    "advTabDev": "開發·實驗",
+    "advSectionResponse": "回覆修正",
+    "advSectionDevTools": "開發工具",
+    "advSectionExperimental": "實驗功能",
 } satisfies DeepPartial<typeof import('./en').languageEnglish>

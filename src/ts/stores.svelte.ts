@@ -91,6 +91,7 @@ export const SystemSubmenuIndex = writable(0)
 // mode gear button can deep-link to the Sidebar tab — see src/ts/routing
 // (AccessibilityTab) and Setting/Pages/AccessibilitySettings.svelte.
 export const AccessibilitySubmenuIndex = writable(0)
+export const AdvancedSubmenuIndex = writable(0)
 // Sub-tab indices for the remaining tabbed settings pages. Stores (instead of
 // page-local $state) so the settings search can deep-link to a specific tab —
 // see src/ts/setting/searchIndex.ts (navigateToSearchResult).

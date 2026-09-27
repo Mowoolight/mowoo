@@ -16,14 +16,14 @@
     <!-- Row pages: notices become ShAlert banners (no row divider, like the
          Display customization warning); h2 becomes a section heading. -->
     {#if item.options?.level === 'warning'}
-        <ShAlert variant="warning" className="my-2">
+        <ShAlert variant="warning" className="mt-2 mb-3">
             {#snippet icon()}<TriangleAlertIcon />{/snippet}
             {getLabel(item)}
         </ShAlert>
     {:else if item.options?.level === 'h2'}
         <h3 class="text-base font-bold mt-8 mb-1">{getLabel(item)}</h3>
     {:else}
-        <ShAlert variant="info" className="my-2">
+        <ShAlert variant="info" className="mt-2 mb-3">
             {#snippet icon()}<InfoIcon />{/snippet}
             {getLabel(item)}
         </ShAlert>
