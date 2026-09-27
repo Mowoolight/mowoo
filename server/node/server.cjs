@@ -7305,34 +7305,46 @@ function decodeRemoteMetaLastUsed(raw) {
 }
 
 async function computeAssetSweep({ includeAssets, assetGraceMs = 0, includeRemotes = false, checkpointLabel = 'AssetSweep' } = {}) {
-    await flushPendingDb();
-    const raw = kvGet(DB_BLOB_KEY);
-    if (!raw) return { error: 'No database blob' };
-    const dbObj = await decodeRisuSave(raw);
-    if (!dbObj || !Array.isArray(dbObj.characters)) return { error: 'Database decode failed' };
-
-    const uncleanable = buildUncleanableSet(dbObj);
+    let dbObj;
     const assets = includeAssets ? kvListWithSizesAndUpdatedAt('assets/') : [];
+    const uncleanable = new Set();
+    if (includeAssets) {
+        await flushPendingDb();
+        const raw = kvGet(DB_BLOB_KEY);
+        if (!raw) return { error: 'No database blob' };
+        dbObj = await decodeRisuSave(raw);
+        if (!dbObj || !Array.isArray(dbObj.characters)) return { error: 'Database decode failed' };
 
-    try {
-        addLiveManifestRefs(uncleanable, dbObj);
-    } catch (error) {
-        return { error: `Manifest reference scan failed — refusing to purge: ${error?.message || error}` };
-    }
-    try {
-        addArchivedCharacterRefs(uncleanable, dbObj);
-    } catch (error) {
-        return { error: `Deactivated-character reference scan failed — refusing to purge: ${error?.message || error}` };
-    }
+        for (const bn of buildUncleanableSet(dbObj)) uncleanable.add(bn);
+        try {
+            addLiveManifestRefs(uncleanable, dbObj);
+        } catch (error) {
+            return { error: `Manifest reference scan failed — refusing to purge: ${error?.message || error}` };
+        }
+        try {
+            addArchivedCharacterRefs(uncleanable, dbObj);
+        } catch (error) {
+            return { error: `Deactivated-character reference scan failed — refusing to purge: ${error?.message || error}` };
+        }
 
-    // A walker that returns nothing while assets exist means the decode
-    // produced a shape we do not understand — every asset would look orphaned.
-    // Refuse rather than delete the library. Checked before plugin-storage refs
-    // are unioned in so those can't mask a bad walk.
-    if (uncleanable.size === 0 && assets.length > 0) {
-        return { error: 'Reference scan produced no references — refusing to purge' };
+        // A walker that returns nothing while assets exist means the decode
+        // produced a shape we do not understand — every asset would look orphaned.
+        // Refuse rather than delete the library. Checked before plugin-storage refs
+        // are unioned in so those can't mask a bad walk.
+        if (uncleanable.size === 0 && assets.length > 0) {
+            return { error: 'Reference scan produced no references — refusing to purge' };
+        }
+        for (const bn of collectPluginStorageAssetRefs()) uncleanable.add(bn);
+    } else {
+        // Remote-only sweep (the boot auto-sweep with asset cleanup off): it
+        // needs only the live and deactivated chaIds. The stripped dbCache
+        // holds both and is at least as fresh as disk, so skip the flush,
+        // the full blob decode and every asset reference scan — on a large
+        // save those ran inside the storage queue and held up saves at boot.
+        if (!(await loadDbCacheIfMissing())) return { error: 'No database blob' };
+        dbObj = dbCache[DB_HEX_KEY];
+        if (!dbObj || !Array.isArray(dbObj.characters)) return { error: 'Database decode failed' };
     }
-    for (const bn of collectPluginStorageAssetRefs()) uncleanable.add(bn);
 
     const now = Date.now();
     const assetVictims = includeAssets
