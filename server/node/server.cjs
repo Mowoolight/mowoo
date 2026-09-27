@@ -383,8 +383,7 @@ async function loadDbCacheIfMissing({ createBackup = false } = {}) {
     if (dbCache[DB_HEX_KEY]) return true;
     const raw = kvGet('database/database.bin');
     if (!raw) return false;
-    const dbObj = await decodeDatabaseWithPersistentChatIds(raw, { createBackup });
-    initChatStore(dbObj);
+    const dbObj = await initChatStoreFromDisk(await decodeDatabaseWithPersistentChatIds(raw, { createBackup }));
     dbCache[DB_HEX_KEY] = normalizeJSON(stripDatabaseForClient(dbObj, { reconcileManifests: true }));
     return true;
 }
@@ -595,6 +594,28 @@ function initChatStore(dbObj) {
 }
 
 /**
+ * initChatStore for a database just decoded from disk. A reactivated
+ * character can sit on disk with bodiless `_stub` chats whose bodies only its
+ * archive rows hold; restore them before anything reads the store, or a chat
+ * opened before the next save loads empty and the edit that follows replaces
+ * the history for good. A failure here only logs: the app must still load,
+ * and the persist path refuses on its own when a row is unreadable.
+ * Returns the database the store was built from.
+ */
+async function initChatStoreFromDisk(dbObj) {
+    let db = dbObj;
+    if (findUnmergedArchivedChats(dbObj).length > 0) {
+        try {
+            db = await restoreArchivedChatsForDisk(dbObj, 'load');
+        } catch (error) {
+            logger.warn(`[Archive] load: could not restore chats from archive rows: ${error?.message || error}`);
+        }
+    }
+    initChatStore(db);
+    return db;
+}
+
+/**
  * Strip full chat data from a decoded database object, replacing with stubs.
  * Returns a new object — does not mutate input.
  */
@@ -786,7 +807,7 @@ async function ensureChatStore() {
     const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
         createBackup: true,
     });
-    initChatStore(dbObj);
+    await initChatStoreFromDisk(dbObj);
 }
 
 // Stub metadata fields a JSON Patch may legitimately touch on a `chats[i]`
@@ -902,7 +923,7 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
     const strippedDb = dbCache[filePath];
     if (!strippedDb) return;
     await ensureChatStore();
-    const fullDb = hydrateDatabaseForDisk(strippedDb);
+    let fullDb = hydrateDatabaseForDisk(strippedDb);
 
     // Disk protection guard: abort persist when reassemble produced metadata-only
     // chats. Writing them would lock the loss in (next /api/read returns the
@@ -921,20 +942,21 @@ async function persistDbCacheWithChats(filePath, decodedKey) {
             delete dbCache[filePath];
             throw err;
         }
-        // A character that came back from the archive without /activate in
-        // this process (e.g. server restarted in between) still has bodiless
-        // `_stub` chats after reassembly. Writing them would strand the
-        // character; its payload is intact in kv, so refuse and let the
-        // client re-activate.
-        const unmerged = findUnmergedArchivedChats(fullDb);
-        if (unmerged.length > 0) {
-            const err = new Error(
-                `persist aborted: ${unmerged.length} deactivated character(s) returned without their chats — `
-                + `re-activate them. sample=[${unmerged.slice(0, 3).join(', ')}]`
-            );
-            recordPersistFailure(err, 'persistDbCacheWithChats:archive-unmerged');
-            delete dbCache[filePath];
-            throw err;
+        // A character that came back from the archive without its chats
+        // registered in this process (e.g. server restarted in between) still
+        // has bodiless `_stub` chats after reassembly. Its payload is intact
+        // in kv: fill them from there instead of writing stubs over them.
+        // Refusing the whole persist instead left every save failing with no
+        // way out for the user. Only an unreadable row still aborts.
+        if (findUnmergedArchivedChats(fullDb).length > 0) {
+            try {
+                fullDb = await restoreArchivedChatsForDisk(fullDb, 'persist');
+            } catch (error) {
+                const err = new Error(`persist aborted: a deactivated character's archive row is unreadable — ${error?.message || error}`);
+                recordPersistFailure(err, 'persistDbCacheWithChats:archive-unreadable');
+                delete dbCache[filePath];
+                throw err;
+            }
         }
     }
 
@@ -2991,7 +3013,7 @@ async function importBackupFromSource(dataSource, { maxBytes = 0, totalBytes = 0
             migrationResult: migration,
         });
         coldStorageFailed = migration.coldStorageFailed || 0;
-        initChatStore(dbObj);
+        await initChatStoreFromDisk(dbObj);
     }
 
     try {
@@ -4235,7 +4257,21 @@ app.post('/api/write', async (req, res, next) => {
                         return;
                     }
                     await ensureChatStore();
-                    const fullDb = hydrateDatabaseForDisk(incomingDb);
+                    let fullDb = hydrateDatabaseForDisk(incomingDb);
+                    // Same archive-row restore as persistDbCacheWithChats: a
+                    // full write must not land a reactivated character's
+                    // bodiless stubs on disk while its rows hold the bodies.
+                    if (findUnmergedArchivedChats(fullDb).length > 0) {
+                        try {
+                            fullDb = await restoreArchivedChatsForDisk(fullDb, '/api/write');
+                        } catch (error) {
+                            const err = new Error(`write aborted: a deactivated character's archive row is unreadable — ${error?.message || error}`);
+                            recordPersistFailure(err, '/api/write:archive-unreadable');
+                            logger.error(`[Write] ${err.message}`);
+                            res.status(500).json({ error: 'Write aborted: archive row unreadable' });
+                            return;
+                        }
+                    }
 
                     // Mirror the patch-persist guard (persistDbCacheWithChats):
                     // a malformed full-write payload could carry chats with
@@ -6473,7 +6509,12 @@ function emptyChatFrom(chat) {
 // accepts storing it as the empty chat it already is.
 async function hydrateCharacterForArchive(character, { acceptLostChats = false } = {}) {
     await ensureChatStore();
-    const full = hydrateDatabaseForDisk({ characters: [character] }).characters[0];
+    let full = hydrateDatabaseForDisk({ characters: [character] }).characters[0];
+    // A character reactivated earlier may still have its bodies only in its
+    // archive rows.
+    if (full.chats?.some((c) => c && c._stub === true)) {
+        full = (await restoreUnmergedArchivedChats({ characters: [full] })).db.characters[0];
+    }
     const chats = Array.isArray(full.chats) ? full.chats : [];
     const lost = chats.filter(isBodilessChat);
     if (lost.length > 0 && !acceptLostChats) {
@@ -6561,6 +6602,81 @@ function findUnmergedArchivedChats(fullDb) {
         if (hasAnyArchivePayload(c.chaId)) out.push(c.chaId);
     }
     return out;
+}
+
+// Fill the bodiless `_stub` chats of live characters that have archive rows
+// from those rows, matched by chat id, newest row first. Such a character
+// came back from the archive without its chats registered in this process
+// (a restart in between, a store rebuild, or a full write from a client).
+// Only chats the server holds no body for are filled, so nothing newer can be
+// overwritten. A chat no row holds has no body anywhere and stays a stub —
+// refusing to persist over it would block every save of the whole database
+// and recover nothing. Throws when a row cannot be read (fail closed).
+// Returns a new database object; `fullDb`'s branches are never mutated.
+async function restoreUnmergedArchivedChats(fullDb) {
+    // Only a stub with no message array lacks its body. A legacy hybrid
+    // (`_stub: true` and a real message array) carries the body itself and
+    // may be newer than any row; initChatStore just drops its flag.
+    const lacksBody = (ch) => !!ch && ch._stub === true && !Array.isArray(ch.message);
+    const result = { db: fullDb, restored: [], unresolved: [] };
+    const characters = Array.isArray(fullDb?.characters) ? fullDb.characters : null;
+    if (!characters) return result;
+    let nextCharacters = null;
+    for (let i = 0; i < characters.length; i++) {
+        const c = characters[i];
+        if (!c?.chaId || !Array.isArray(c.chats) || !c.chats.some(lacksBody)) continue;
+        const rows = listArchivePayloadKeysFor(c.chaId)
+            .map((key) => parseArchiveRowKey(key, ARCHIVE_PREFIX))
+            .filter((row) => row && row.chaId === c.chaId)
+            .sort((a, b) => b.archivedAt - a.archivedAt);
+        if (rows.length === 0) continue;
+        const wanted = new Set(c.chats.filter((ch) => lacksBody(ch) && ch.id).map((ch) => ch.id));
+        const found = new Map();
+        for (const row of rows) {
+            if (found.size === wanted.size) break;
+            const decoded = await decodeArchivePayload(c.chaId, row.archivedAt);
+            for (const chat of decoded?.payload.character.chats || []) {
+                if (chat?.id && wanted.has(chat.id) && !found.has(chat.id) && Array.isArray(chat.message)) {
+                    found.set(chat.id, chat);
+                }
+            }
+        }
+        const chats = c.chats.map((ch) => {
+            if (!lacksBody(ch)) return ch;
+            const body = ch.id ? found.get(ch.id) : undefined;
+            if (!body) {
+                result.unresolved.push(`${c.chaId}/${ch.id || '?'}`);
+                return ch;
+            }
+            result.restored.push(`${c.chaId}/${ch.id}`);
+            return mergeChatStubWithFullChat(ch, body);
+        });
+        if (found.size > 0) {
+            nextCharacters ??= characters.slice();
+            nextCharacters[i] = { ...c, chats };
+        }
+    }
+    if (nextCharacters) result.db = { ...fullDb, characters: nextCharacters };
+    return result;
+}
+
+// Chats already reported as missing from the rows: every later persist sees
+// them again, so each is logged once per process.
+const reportedUnresolvedArchiveChats = new Set();
+
+// persistDbCacheWithChats / /api/write: restore what the archive rows hold
+// and log what they do not. Throws only when a row is unreadable.
+async function restoreArchivedChatsForDisk(fullDb, source) {
+    const r = await restoreUnmergedArchivedChats(fullDb);
+    if (r.restored.length > 0) {
+        logger.info(`[Archive] ${source}: restored ${r.restored.length} chat body(s) from archive rows. sample=[${r.restored.slice(0, 3).join(', ')}]`);
+    }
+    const fresh = r.unresolved.filter((key) => !reportedUnresolvedArchiveChats.has(key));
+    if (fresh.length > 0) {
+        for (const key of fresh) reportedUnresolvedArchiveChats.add(key);
+        logger.warn(`[Archive] ${source}: ${fresh.length} chat(s) of reactivated characters have no body on the server or in their archive rows; kept as-is. sample=[${fresh.slice(0, 3).join(', ')}]`);
+    }
+    return r.db;
 }
 
 function jsonLength(value) {
@@ -7783,7 +7899,7 @@ app.post('/api/db/snapshots/restore', async (req, res, next) => {
                     const dbObj = await decodeDatabaseWithPersistentChatIds(raw, {
                         createBackup: false,
                     });
-                    initChatStore(dbObj);
+                    await initChatStoreFromDisk(dbObj);
                     // Migration may have rewritten database.bin — etag must
                     // reflect the post-migration bytes the next /api/read sends.
                     const finalRaw = kvGet(DB_BLOB_KEY);
