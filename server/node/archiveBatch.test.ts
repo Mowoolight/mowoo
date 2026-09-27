@@ -243,6 +243,54 @@ const chat = (id: string, text: string) => ({ id, name: text, localLore: [], not
 const char = (chaId: string, chats: unknown[]) => ({ chaId, name: `Name ${chaId}`, type: 'character', image: '', chats, chatPage: 0 })
 const archiveKeys = () => withDb((db) => db.prepare("SELECT key FROM kv WHERE key LIKE 'archive/%'").all().map((r: any) => r.key))
 
+describe('/api/characters/archive-batch', () => {
+    it('writes a verified row per character and reports each outcome', async () => {
+        await seedDb({
+            characters: [char('a', [chat('a1', 'A')]), char('b', [chat('b1', 'B')]), char('lost', [chat('l1', 'L'), { id: 'gone', name: 'Gone', _stub: true }])],
+            characterOrder: ['a', 'b', 'lost'],
+        })
+        await readKey('database/database.bin')
+        const res = await batch(['a', 'missing', 'b', 'lost', 'bad/id'])
+        expect(res.status).toBe(200)
+        const { results } = await res.json() as any
+        expect(results.map((r: any) => [r.chaId, r.ok, r.code])).toEqual([
+            ['a', true, undefined],
+            ['missing', false, 'ARCHIVE_CHARACTER_NOT_FOUND'],
+            ['b', true, undefined],
+            ['lost', false, 'ARCHIVE_CHATS_UNAVAILABLE'],
+            ['bad/id', false, 'ARCHIVE_BAD_ID'],
+        ])
+        expect(results[0].stub).toMatchObject({ chaId: 'a', chatCount: 1 })
+        expect(results[3].chats).toEqual(['Gone'])
+        // Rows only; moving the characters is the client's save.
+        expect(archiveKeys().sort()).toEqual([`archive/a/${results[0].stub.archivedAt}`, `archive/b/${results[2].stub.archivedAt}`].sort())
+        expect((await clientView()).characters.map((c: any) => c.chaId)).toEqual(['a', 'b', 'lost'])
+
+        const accepted = await (await batch(['lost'], true)).json() as any
+        expect(accepted.results[0]).toMatchObject({ chaId: 'lost', ok: true })
+    }, 20_000)
+
+    it('rejects a malformed request as a whole', async () => {
+        await seedDb({ characters: [char('a', [])], characterOrder: ['a'] })
+        for (const bad of [[], 'a', ['a', 'a'], [1], Array.from({ length: 101 }, (_, i) => `c${i}`)]) {
+            const res = await batch(bad)
+            expect(res.status).toBe(400)
+            expect((await res.json() as any).code).toBe('ARCHIVE_BAD_BATCH')
+        }
+    })
+
+    // Rows wait for the client's save to be referenced; a purge in between
+    // must not take them (a bulk run keeps them waiting for a whole chunk).
+    it('rows just written survive an orphan purge until they are old', async () => {
+        await seedDb({ characters: [char('a', [chat('a1', 'A')])], characterOrder: ['a'] })
+        await readKey('database/database.bin')
+        expect((await (await batch(['a'])).json() as any).results[0].ok).toBe(true)
+        const purge = await fetch(`${base}/api/db/archive/purge-orphans`, { method: 'POST', headers: authHeaders() })
+        expect(await purge.json()).toMatchObject({ ok: true, deleted: 0, metas: 0 })
+        expect(archiveKeys()).toHaveLength(1)
+    })
+})
+
 describe('a failed database persist', () => {
     // It used to drop its timer: nothing wrote the change again until the
     // next edit, and a restart in between lost it.

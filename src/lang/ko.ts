@@ -621,6 +621,17 @@ export const languageKorean = {
   deactivateCharacterLostChats: (name: string, count: number, list: string) =>
       `"${name}"의 채팅 ${count}개는 서버에도 이 브라우저에도 내용이 없어 열면 빈 채팅으로 보입니다.\n\n${list}\n\n이 채팅들은 빈 채팅으로 보관됩니다. 비활성화할까요?`,
   deactivateCharacterFailed: "비활성화에 실패했습니다: ",
+  archiveSavePending: "비활성화했지만 아직 서버에 저장하지 못했습니다. 자동으로 다시 저장을 시도합니다.",
+  bulkArchiveBusy: "이미 여러 캐릭터를 처리하는 중입니다. 끝난 뒤 다시 시도하세요.",
+  bulkArchiveProgress: (done: number, total: number, trash: boolean) =>
+    `${trash ? "휴지통으로 옮기는 중" : "비활성화하는 중"}… ${done}/${total}`,
+  bulkArchiveDone: (count: number, trash: boolean) =>
+    trash ? `캐릭터 ${count}개를 휴지통으로 옮겼습니다.` : `캐릭터 ${count}개를 비활성화했습니다.`,
+  bulkArchiveFailed: (done: number, failed: number, list: string) =>
+    `${done}개는 처리했고 ${failed}개는 실패했습니다. 실패한 캐릭터는 그대로 남아 있습니다.\n\n${list}`,
+  bulkArchiveStopped: "변경사항을 서버에 저장하지 못해 나머지 캐릭터는 처리하지 않았습니다. 이미 처리한 캐릭터는 자동으로 다시 저장을 시도합니다.",
+  bulkDeactivateLostChats: (count: number, list: string) =>
+    `캐릭터 ${count}개에 서버에도 이 브라우저에도 내용이 없는 채팅이 있습니다. 열면 빈 채팅으로 보이는 채팅입니다.\n\n${list}\n\n이 채팅들은 빈 채팅으로 보관됩니다. 이 캐릭터들도 비활성화할까요?`,
   archiveSaveFailed: "최근 변경사항을 서버에 저장하지 못해, 변경사항을 지키기 위해 중단했습니다. 잠시 후 다시 시도하세요.",
   rebaseSkippedArchived: (names: string) =>
     `"${names}" 캐릭터가 다른 기기에서 비활성화되어 이 기기의 저장되지 않은 변경을 반영하지 못했습니다.`,

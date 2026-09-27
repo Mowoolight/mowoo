@@ -1222,6 +1222,23 @@ export class NodeStorage{
         return body.stub
     }
 
+    /**
+     * Archive rows for many characters in one request. Throws only when the
+     * request as a whole fails; each character's outcome is in its result.
+     */
+    async archiveCharacters(chaIds: string[], arg: { acceptLostChats?: boolean } = {}): Promise<ArchiveBatchResult[]> {
+        const da = await this.authFetch('/api/characters/archive-batch', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ chaIds, acceptLostChats: arg.acceptLostChats === true }),
+        })
+        const body = await da.json().catch(() => ({})) as { ok?: boolean; results?: ArchiveBatchResult[]; error?: string; code?: string }
+        if (da.status < 200 || da.status >= 300 || !Array.isArray(body?.results)) {
+            throw new CharacterArchiveError(body?.code ?? `HTTP_${da.status}`, body?.error ?? `archive error: ${da.status}`)
+        }
+        return body.results
+    }
+
     /** Server registers the chats and returns the client-view character (stub chats, manifest descriptor). */
     async activateCharacter(chaId: string, archivedAt?: number): Promise<any> {
         const da = await this.authFetch(`/api/characters/${encodeURIComponent(chaId)}/activate`, {
@@ -1375,6 +1392,11 @@ async function digestPassword(message:string) {
 }
 
 /** Failure reported by the character archive endpoints; `code` is the server's error code. */
+/** One character's outcome in /api/characters/archive-batch. */
+export type ArchiveBatchResult =
+    | { chaId: string; ok: true; stub: any }
+    | { chaId: string; ok: false; code: string; error: string; chats?: string[] }
+
 export class CharacterArchiveError extends Error {
     code: string
     /** Names of the chats the failure is about (ARCHIVE_CHATS_UNAVAILABLE). */

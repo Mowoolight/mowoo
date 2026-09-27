@@ -1,4 +1,5 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { get } from 'svelte/store'
 
 // Deactivate → activate before the deactivation's save reached the server:
 // the server still lists the character as active (409 ARCHIVE_ALREADY_ACTIVE).
@@ -22,7 +23,10 @@ const requestImmediateSave = vi.fn()
 const storage = {
     activateCharacter: vi.fn(),
     archiveCharacter: vi.fn(),
+    archiveCharacters: vi.fn(),
 }
+const overlay = vi.fn()
+const deselectCharacter = vi.fn()
 const state: { db: any } = { db: null }
 
 vi.mock('./globalApi.svelte', () => ({
@@ -33,12 +37,13 @@ vi.mock('./globalApi.svelte', () => ({
     requiresFullEncoderReload: { state: false },
     trackCharacterForSave: (id: string) => trackCharacterForSave(id),
 }))
+const { writable } = await import('svelte/store')
+const selectedCharID = writable(-1)
 vi.mock('./stores.svelte', async () => {
-    const { writable } = await import('svelte/store')
     return {
         DBState: { get db() { return state.db } },
-        loadingOverlayStore: { set: () => {} },
-        selectedCharID: writable(-1),
+        loadingOverlayStore: { set: (v: any) => overlay(v) },
+        selectedCharID,
     }
 })
 vi.mock('./alert', () => ({
@@ -46,14 +51,14 @@ vi.mock('./alert', () => ({
     alertError: vi.fn(),
     notifySuccess: () => {},
 }))
-vi.mock('./characters', () => ({ changeChar: () => {}, deselectCharacter: () => {} }))
+vi.mock('./characters', () => ({ changeChar: () => {}, deselectCharacter: () => deselectCharacter() }))
 vi.mock('./storage/chatStorage', () => ({ convertStubsToPlaceholders: (chats: any[]) => chats }))
 vi.mock('./storage/nodeStorage', () => ({ CharacterArchiveError }))
 vi.mock('src/lang', () => ({
-    language: new Proxy({}, { get: (_t, key) => typeof key === 'string' && key.endsWith('Confirm') ? () => 'confirm' : String(key) }),
+    language: new Proxy({}, { get: (_t, key) => typeof key === 'string' && /(Confirm|Progress)$/.test(key) ? () => String(key) : String(key) }),
 }))
 
-const { activateCharacter, archiveCharacter } = await import('./characterArchive')
+const { activateCharacter, archiveCharacter, archiveCharacters } = await import('./characterArchive')
 
 const stub = { chaId: 'c1', name: 'One', archivedAt: 1000 }
 const restored = () => ({ chaId: 'c1', name: 'One', chats: [{ id: 'x', name: 'Chat', _stub: true }] })
@@ -143,3 +148,84 @@ describe('archiveCharacter', () => {
         expect(requestImmediateSave).not.toHaveBeenCalled()
     })
 })
+
+describe('archiveCharacters (bulk)', () => {
+    const chars = (n: number) => Array.from({ length: n }, (_, i) => ({ chaId: `c${i}`, name: `C${i}`, chats: [] }))
+    const okFor = (ids: string[]) => ids.map((chaId) => ({ chaId, ok: true, stub: { chaId, name: chaId, archivedAt: 1 } }))
+
+    test('sends chunks of 20 and saves after each, with one save before the first', async () => {
+        state.db = { characters: chars(45), nodeOnlyArchivedCharacters: [] }
+        const order: string[] = []
+        flushSaves.mockImplementation(async () => { order.push('flush'); return true })
+        storage.archiveCharacters.mockImplementation(async (ids: string[]) => { order.push(`batch${ids.length}`); return okFor(ids) })
+        const out = await archiveCharacters(state.db.characters.map((c: any) => c.chaId), { trash: true })
+        expect(order).toEqual(['flush', 'batch20', 'flush', 'batch20', 'flush', 'batch5', 'flush'])
+        expect(storage.archiveCharacters).toHaveBeenCalledWith(expect.any(Array), { acceptLostChats: true })
+        expect(out).toMatchObject({ done: 45, failed: [], lost: [], stopped: false })
+        expect(state.db.characters).toEqual([])
+        expect(state.db.nodeOnlyArchivedCharacters).toHaveLength(45)
+        expect(state.db.nodeOnlyArchivedCharacters.every((s: any) => typeof s.trashedAt === 'number')).toBe(true)
+        expect(overlay).toHaveBeenLastCalledWith({ active: false, text: '', onCancel: null })
+    })
+
+    test('moves only the characters the server archived', async () => {
+        state.db = { characters: chars(3), nodeOnlyArchivedCharacters: [] }
+        storage.archiveCharacters.mockResolvedValue([
+            { chaId: 'c0', ok: true, stub: { chaId: 'c0' } },
+            { chaId: 'c1', ok: false, code: 'ARCHIVE_VERIFY_FAILED', error: 'bad' },
+            { chaId: 'c2', ok: false, code: 'ARCHIVE_CHATS_UNAVAILABLE', error: 'lost', chats: ['X'] },
+        ])
+        const out = await archiveCharacters(['c0', 'c1', 'c2'])
+        expect(storage.archiveCharacters).toHaveBeenCalledWith(['c0', 'c1', 'c2'], { acceptLostChats: false })
+        expect(state.db.characters.map((c: any) => c.chaId)).toEqual(['c1', 'c2'])
+        expect(out.done).toBe(1)
+        expect(out.failed).toEqual([{ chaId: 'c1', name: 'C1', reason: 'bad' }])
+        expect(out.lost).toEqual([{ chaId: 'c2', name: 'C2', chats: ['X'] }])
+    })
+
+    test('stops before the next chunk when a save does not land', async () => {
+        state.db = { characters: chars(30), nodeOnlyArchivedCharacters: [] }
+        flushSaves.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+        storage.archiveCharacters.mockImplementation(async (ids: string[]) => okFor(ids))
+        const out = await archiveCharacters(state.db.characters.map((c: any) => c.chaId))
+        expect(storage.archiveCharacters).toHaveBeenCalledTimes(1)
+        expect(out).toMatchObject({ done: 20, stopped: true })
+        expect(state.db.characters).toHaveLength(10)
+    })
+
+    test('does not start while earlier edits are unsaved', async () => {
+        state.db = { characters: chars(2), nodeOnlyArchivedCharacters: [] }
+        flushSaves.mockResolvedValue(false)
+        await expect(archiveCharacters(['c0', 'c1'])).rejects.toThrow()
+        expect(storage.archiveCharacters).not.toHaveBeenCalled()
+        expect(state.db.characters).toHaveLength(2)
+        expect(overlay).toHaveBeenLastCalledWith({ active: false, text: '', onCancel: null })
+    })
+
+    test('refuses a second run while one is in progress', async () => {
+        state.db = { characters: chars(2), nodeOnlyArchivedCharacters: [] }
+        let release!: () => void
+        storage.archiveCharacters.mockImplementation((ids: string[]) => new Promise((r) => { release = () => r(okFor(ids)) }))
+        const first = archiveCharacters(['c0'])
+        await expect(archiveCharacters(['c1'])).rejects.toThrow('bulkArchiveBusy')
+        await vi.waitFor(() => expect(storage.archiveCharacters).toHaveBeenCalledTimes(1))
+        release()
+        await first
+        // Free again once the first run has finished.
+        storage.archiveCharacters.mockImplementation(async (ids: string[]) => okFor(ids))
+        expect(await archiveCharacters(['c1'])).toMatchObject({ done: 1 })
+    })
+
+    test('keeps the selected character selected by id, and deselects an archived one', async () => {
+        state.db = { characters: chars(4), nodeOnlyArchivedCharacters: [] }
+        selectedCharID.set(3)
+        storage.archiveCharacters.mockImplementation(async (ids: string[]) => okFor(ids))
+        await archiveCharacters(['c0', 'c1'])
+        expect(get(selectedCharID)).toBe(1)
+        expect(state.db.characters[1].chaId).toBe('c3')
+        await archiveCharacters(['c3'])
+        expect(deselectCharacter).toHaveBeenCalled()
+        selectedCharID.set(-1)
+    })
+})
+

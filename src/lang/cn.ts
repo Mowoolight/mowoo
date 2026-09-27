@@ -513,6 +513,13 @@ export const languageChinese = {
     "deactivateCharacterLostChats": (name: string, count: number, list: string) =>
         `“${name}”的 ${count} 个聊天在服务器和此浏览器中都没有内容，打开后显示为空聊天。\n\n${list}\n\n这些聊天将作为空聊天保存。要停用吗？`,
     "deactivateCharacterFailed": "停用失败：",
+    "archiveSavePending": "已停用，但尚未保存到服务器。将自动重试保存。",
+    "bulkArchiveBusy": "已有多个角色正在处理中。请在完成后重试。",
+    "bulkArchiveProgress": (done: number, total: number, trash: boolean) => `${trash ? "正在移至回收站" : "正在停用"}… ${done}/${total}`,
+    "bulkArchiveDone": (count: number, trash: boolean) => trash ? `已将 ${count} 个角色移至回收站。` : `已停用 ${count} 个角色。`,
+    "bulkArchiveFailed": (done: number, failed: number, list: string) => `已完成 ${done} 个，失败 ${failed} 个。失败的角色保持原样。\n\n${list}`,
+    "bulkArchiveStopped": "更改未能保存到服务器，其余角色未处理。已处理的角色会自动重试保存。",
+    "bulkDeactivateLostChats": (count: number, list: string) => `${count} 个角色有在服务器和此浏览器中都没有内容的聊天，打开后显示为空聊天。\n\n${list}\n\n这些聊天将作为空聊天保存。也要停用这些角色吗？`,
     "archiveSaveFailed": "最近的更改未能保存到服务器，为保护这些更改已中止。请稍后重试。",
     "activateCharacterConfirm": (name: string) => `「${name}」已停用。要重新启用吗？`,
     "activateCharacterMissing": "找不到已保存的角色数据，无法启用。请检查服务器日志和存储面板。",
