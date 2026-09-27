@@ -7007,17 +7007,46 @@ function collectPluginStorageAssetRefs() {
 
 // The persisted blob is currently hydrated for upstream compatibility, but
 // manifests are authoritative for the lazy client view and will remain so
-// after a future slim-database cutover. Union live manifest paths so a
-// partial/stripped object (the warm dbCache always is) can never make
-// referenced assets look orphaned. Throws when a manifest fails to verify —
-// callers must then refuse to purge / report the count as unavailable.
-function addLiveManifestRefs(uncleanable) {
-    for (const descriptor of assetManifestStore.listLiveDescriptors()) {
-        const verified = assetManifestStore.verifyManifest(descriptor.id);
+// after a future slim-database cutover. Union the manifests of the owners
+// `dbObj` still has, so a partial/stripped object (the warm dbCache always is)
+// can never make referenced assets look orphaned. Live rows are never deleted
+// when an owner goes away, so unioning every live row kept a deleted module's
+// or character's assets referenced forever; an owner whose array is empty
+// references nothing either. Per owner both the descriptor it carries and its
+// current live pointer count (a stale descriptor must not under-count).
+// Deactivated characters are covered by addArchivedCharacterRefs. Throws when
+// a manifest fails to verify — callers must then refuse to purge / report the
+// count as unavailable.
+function addLiveManifestRefs(uncleanable, dbObj) {
+    const manifestIds = new Set();
+    const addOwner = (kind, ownerId, descriptor, inlineItems) => {
+        const hasDescriptor = !!descriptor && typeof descriptor.id === 'string';
+        if (!hasDescriptor && !(Array.isArray(inlineItems) && inlineItems.length > 0)) return;
+        if (hasDescriptor) manifestIds.add(descriptor.id);
+        const live = assetManifestStore.getLiveDescriptor(kind, ownerId);
+        if (live) manifestIds.add(live.id);
+    };
+    (Array.isArray(dbObj?.modules) ? dbObj.modules : []).forEach((module, index) => {
+        if (!module) return;
+        addOwner('module', module.assetManifest?.ownerId || moduleOwnerId(module, index), module.assetManifest, module.assets);
+    });
+    (Array.isArray(dbObj?.characters) ? dbObj.characters : []).forEach((character, index) => {
+        if (!character) return;
+        addOwner('character', character.additionalAssetManifest?.ownerId || characterOwnerId(character, index),
+            character.additionalAssetManifest, character.additionalAssets);
+    });
+    (Array.isArray(dbObj?.personas) ? dbObj.personas : []).forEach((persona, index) => {
+        const embedded = persona?.embeddedModule;
+        if (!embedded) return;
+        addOwner('persona-module', embedded.assetManifest?.ownerId || personaOwnerId(persona, index),
+            embedded.assetManifest, embedded.assets);
+    });
+    for (const id of manifestIds) {
+        const verified = assetManifestStore.verifyManifest(id);
         if (!verified.ok) {
-            throw new Error(`Asset manifest verification failed: ${descriptor.id} (${verified.error})`);
+            throw new Error(`Asset manifest verification failed: ${id} (${verified.error})`);
         }
-        for (const item of assetManifestStore.loadItems(descriptor.id) || []) {
+        for (const item of assetManifestStore.loadItems(id) || []) {
             const basename = statsBasename(item?.[1]);
             if (basename) uncleanable.add(basename);
         }
@@ -7127,7 +7156,7 @@ async function computeAssetSweep({ includeAssets, assetGraceMs = 0, includeRemot
     const assets = includeAssets ? kvListWithSizesAndUpdatedAt('assets/') : [];
 
     try {
-        addLiveManifestRefs(uncleanable);
+        addLiveManifestRefs(uncleanable, dbObj);
     } catch (error) {
         return { error: `Manifest reference scan failed — refusing to purge: ${error?.message || error}` };
     }
@@ -7406,7 +7435,7 @@ app.get('/api/db/stats', async (req, res, next) => {
         if (stripped && Array.isArray(stripped.characters)) {
             try {
                 const uncleanable = buildUncleanableSet(stripped);
-                addLiveManifestRefs(uncleanable);
+                addLiveManifestRefs(uncleanable, stripped);
                 addArchivedCharacterRefs(uncleanable, stripped);
                 for (const bn of collectPluginStorageAssetRefs()) uncleanable.add(bn);
                 for (const it of kvListWithSizes('assets/')) {
@@ -7565,7 +7594,7 @@ app.get('/api/db/stats/characters', async (req, res, next) => {
         let orphan = { count: 0, totalSize: 0, available: false };
         try {
             const uncleanable = buildUncleanableSet(dbObj);
-            addLiveManifestRefs(uncleanable);
+            addLiveManifestRefs(uncleanable, dbObj);
             addArchivedCharacterRefs(uncleanable, dbObj);
             for (const bn of collectPluginStorageAssetRefs()) uncleanable.add(bn);
             let orphanCount = 0, orphanTotal = 0;
