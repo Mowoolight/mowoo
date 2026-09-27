@@ -1181,6 +1181,12 @@ export const languageKorean = {
     "현재 탭이 비활성화되었습니다. OK를 누르면 탭이 다시 활성화됩니다.",
   sessionHandoffReload:
     "다른 기기에서 사용되어 최신 상태로 새로고침했어요.",
+  sessionUnsavedTitle: "다른 곳에서 저장 권한을 가져갔어요",
+  sessionUnsavedDetail:
+    "이 탭의 저장은 멈췄고, 아직 서버에 저장되지 않은 편집이 있어요. 새로고침하면 그 편집은 사라지고 최신 상태를 불러옵니다. 먼저 미저장 편집을 JSON 파일로 내려받아 두면 필요한 내용을 직접 옮겨 적을 수 있어요.",
+  sessionUnsavedDownload: "미저장 편집 내려받기",
+  sessionUnsavedReload: "편집을 버리고 새로고침",
+  sessionUnsavedPaused: "이 탭의 저장은 멈춘 상태예요. 편집 내용을 옮긴 뒤 새로고침하세요.",
   backupBrowserDownloadStarted: "브라우저 다운로드로 백업을 받기 시작했어요. 진행 상황과 완료는 브라우저의 다운로드 목록에서 확인하세요.",
   addCharacter: "캐릭터 추가",
   importFromRealm: "RisuRealm에서 고르기",

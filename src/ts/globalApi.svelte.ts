@@ -9,7 +9,7 @@ import { MobileGUI, botMakerMode, selectedCharID, loadedStore, DBState, LoadingS
 import { recordDbTransferSize } from "./transferSize";
 import { newSaveTiming, recordSaveSample, type SaveOutcome, type SaveTiming } from "./storage/saveMetrics";
 import { loadPlugins } from "./plugins/plugins.svelte";
-import { alertConfirm, alertError, alertMd, alertNormalWait, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError, notifyInfo } from "./alert";
+import { alertConfirm, alertConfirmMulti, alertError, alertMd, alertNormalWait, alertSelect, alertTOS, waitAlert, notifySuccess, notifyError, notifyInfo } from "./alert";
 import { hasher } from "./parser/parser.svelte";
 import { characterURLImport, hubURL } from "./characterCards";
 import { defaultJailbreak, defaultMainPrompt, oldJailbreak, oldMainPrompt } from "./storage/defaultPrompts";
@@ -559,6 +559,12 @@ export async function saveDb() {
     // that ended 'saved'. flushSaves compares the two.
     let saveSeq = 0
     let lastSavedSeq = 0
+    // Edits are numbered as the change effects see them; savedEditSeq is the
+    // highest one a successful save started after. The difference is what a
+    // session handoff would lose (the tracker itself always keeps the
+    // selected character, so it cannot answer that).
+    let editSeq = 0
+    let savedEditSeq = 0
     const knownChatIdsByCharacter = new Map<string, Set<string>>(
         (getDatabase()?.characters ?? [])
             .filter(character => character?.chaId)
@@ -571,17 +577,85 @@ export async function saveDb() {
     if (window.BroadcastChannel) {
         channel = new BroadcastChannel('risu-db')
     }
+    // Every way this tab loses the writer role ends here. Saving stops first
+    // (gotChannel); a reload then happens as before when nothing is unsaved,
+    // otherwise only after the user chose it, with the unsaved edits
+    // downloadable first. Cancel keeps the tab open with saving paused.
+    let handoffDialogOpen = false
+    async function resolveSessionHandoff(kind: 'tab' | 'return') {
+        if (handoffDialogOpen) return
+        handoffDialogOpen = true
+        try {
+            // A save cut off by the handoff fails and stays unsaved.
+            if (saveInFlight) await saveInFlight.catch(() => {})
+            if (editSeq <= savedEditSeq) {
+                if (kind === 'return') {
+                    try { sessionStorage.setItem('risu-session-handoff-reload', '1') } catch { /* toast is best-effort */ }
+                } else {
+                    await alertNormalWait(language.activeTabChange)
+                }
+                location.reload()
+                return
+            }
+            while (true) {
+                const choice = await alertConfirmMulti(language.sessionUnsavedTitle, [
+                    language.sessionUnsavedDownload,
+                    { label: language.sessionUnsavedReload, variant: 'destructive' },
+                ], language.sessionUnsavedDetail)
+                if (choice === 0) {
+                    try {
+                        await downloadFile(`pocketrisu-unsaved-edits-${Date.now()}.json`, buildUnsavedEditsJson())
+                    } catch (error) {
+                        notifyError(error, { source: 'session-handoff' })
+                    }
+                    continue
+                }
+                if (choice === 1) {
+                    location.reload()
+                    return
+                }
+                notifyInfo(language.sessionUnsavedPaused)
+                return
+            }
+        } finally {
+            handoffDialogOpen = false
+        }
+    }
+    // What the handoff would lose, as readable JSON: the tracked characters
+    // with their loaded chats, and the root/preset/module blocks when those
+    // were edited. Not the whole DB: that can exceed the JS string limit, and
+    // chats that were never opened are only stubs here anyway.
+    function buildUnsavedEditsJson() {
+        const db = getDatabase()
+        const charIds = new Set([...changeTracker.character, ...changeTracker.chat.map(([chaId]) => chaId)])
+        const characters = (db.characters ?? [])
+            .filter((character) => character?.chaId && charIds.has(character.chaId))
+            .map((character) => ({
+                ...character,
+                chats: (character.chats ?? []).filter((chat) => chat && !chat._placeholder && !(chat as { _stub?: boolean })._stub),
+            }))
+        const out: Record<string, unknown> = { savedAt: new Date().toISOString(), characters }
+        if (changeTracker.root) {
+            const { characters: _c, botPresets: _b, modules: _m, plugins: _p, pluginCustomStorage: _s, ...root } = db
+            out.root = root
+        }
+        if (changeTracker.botPreset) out.botPresets = db.botPresets
+        if (changeTracker.modules) out.modules = db.modules
+        // Plugin settings; plugin storage values live in the server kv.
+        if (changeTracker.plugins) out.plugins = db.plugins
+        return JSON.stringify(out, null, 2)
+    }
+    const handOffSession = () => {
+        if (gotChannel) return
+        gotChannel = true
+        void resolveSessionHandoff('tab')
+    }
     if (channel) {
         channel.onmessage = (ev) => {
             if (ev.data === sessionID) {
                 return
             }
-            if (!gotChannel) {
-                gotChannel = true
-                alertNormalWait(language.activeTabChange).then(() => {
-                    location.reload()
-                })
-            }
+            handOffSession()
         }
     }
     // Cross-device single-writer lock: mirrors BroadcastChannel behavior
@@ -590,14 +664,7 @@ export async function saveDb() {
     // simultaneous use of two devices — rare, and the attempted change cannot
     // be saved — so it stays an explicit blocking modal, never an automatic
     // reload that would eat the user's action without a word.
-    window.addEventListener('risu-session-deactivated', () => {
-        if (!gotChannel) {
-            gotChannel = true
-            alertNormalWait(language.activeTabChange).then(() => {
-                location.reload()
-            })
-        }
-    })
+    window.addEventListener('risu-session-deactivated', handOffSession)
 
     // Reload-on-return: while this tab was hidden, another device may have
     // taken the writer lock and changed data. Check the moment the user comes
@@ -616,10 +683,16 @@ export async function saveDb() {
             // static import here would be circular. Already loaded → instant.
             const { doingChat } = await import("./process/index.svelte")
             if (get(doingChat)) return // never yank a running generation
+            // Already handed off (the user kept this tab open): offer the
+            // choice again instead of reloading over the unsaved edits.
+            if (gotChannel) {
+                void resolveSessionHandoff('tab')
+                return
+            }
             const state = await forageStorage.getWriterLockState()
-            if (state !== 'stale') return
-            try { sessionStorage.setItem('risu-session-handoff-reload', '1') } catch { /* toast is best-effort */ }
-            location.reload()
+            if (state !== 'stale' || gotChannel) return
+            gotChannel = true
+            await resolveSessionHandoff('return')
         })().catch(() => { /* status check failed — do nothing, write path 423 still guards */ })
     }
     window.addEventListener('focus', checkWriterLockOnReturn)
@@ -709,6 +782,7 @@ export async function saveDb() {
         })
 
         function saveTimeoutExecute() {
+            editSeq++
             if (saveTimeout) {
                 clearTimeout(saveTimeout);
             }
@@ -1524,11 +1598,17 @@ export async function saveDb() {
         if (saveInFlight) {
             return saveInFlight
         }
+        // Handed off: leave the tracker as it is. Taking and requeueing it
+        // every cycle would hide edits from the unsaved-edits download.
+        if (gotChannel) {
+            return
+        }
 
         const toSave = takeTrackedChanges()
         if (!hasTrackedChanges(toSave) && !options?.forceFullWrite) {
             return
         }
+        const editSeqAtStart = editSeq
 
         const seq = ++saveSeq
         saveInFlight = (async () => {
@@ -1544,6 +1624,7 @@ export async function saveDb() {
                 else if (result === 'retry') recordSample('retry')
                 if (result === 'saved') {
                     lastSavedSeq = seq
+                    savedEditSeq = Math.max(savedEditSeq, editSeqAtStart)
                     savetrys = 0
                     consecutiveRetries = 0
                 } else if (result === 'retry') {
@@ -1608,6 +1689,7 @@ export async function saveDb() {
                 await saveInFlight
                 continue
             }
+            if (gotChannel) return false // this tab no longer saves
             const before = saveSeq
             await triggerSave()
             if (saveSeq === before) return true // nothing was tracked
