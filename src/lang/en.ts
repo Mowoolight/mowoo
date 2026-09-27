@@ -547,7 +547,7 @@ export const languageEnglish = {
     deactivateCharacterLostChats: (name: string, count: number, list: string) =>
         `${count} chat(s) of "${name}" have no content on the server or in this browser, so they open as empty chats.\n\n${list}\n\nThey will be kept as empty chats. Deactivate?`,
     deactivateCharacterFailed: "Deactivation failed: ",
-    archiveSaveFailed: "Recent changes could not be saved to the server, so it was stopped to keep them. Try again in a moment.",
+    archiveSaveFailed: "recent changes could not be saved to the server, so it was stopped to keep them. Try again in a moment.",
     rebaseSkippedArchived: (names: string) =>
         `"${names}" was deactivated on another device, so this device's unsaved edits to it were discarded.`,
     activateCharacterConfirm: (name: string) => `"${name}" is deactivated. Activate it?`,
