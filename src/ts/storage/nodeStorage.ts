@@ -593,7 +593,23 @@ export class NodeStorage{
         }
     }
 
+    // Boot fires several storage calls at once. Without sharing one check,
+    // each sent its own test_auth and, on an unset or wrong password, each
+    // opened its own password prompt.
+    private authPending: Promise<void> | null = null
+
     private async checkAuth(){
+        if(!this.authChecked){
+            this.authPending ??= this.runAuthCheck().finally(() => {
+                this.authPending = null
+            })
+            await this.authPending
+            return
+        }
+        await this.initSession()
+    }
+
+    private async runAuthCheck(){
 
         if(!this.authChecked){
             const data = await (await fetch('/api/test_auth',{
