@@ -1,6 +1,7 @@
 import { forageStorage } from "../globalApi.svelte"
 import { type Chat, type ChatStub, type ChatOrStub, isChatStub } from "./database.svelte"
 import { tick } from "svelte"
+import { writable } from "svelte/store"
 import { createChatDeltaSync, indexedDbChatCopies } from "./chatDeltaSync"
 
 // ── Stub ↔ Placeholder conversion ───────────────────────────────────────────
@@ -134,6 +135,26 @@ export function isHydrating(chaId: string, chatId: string): boolean {
 }
 
 /**
+ * Chats whose last hydration failed, keyed `chaId/chatId`: 'missing' when the
+ * server holds no body (404), 'error' for any other failure. The chat screen
+ * shows this instead of "loading" forever. A missing body is left as a
+ * placeholder, never replaced by an empty chat: an empty save could overwrite
+ * messages another device or a backup still holds.
+ */
+export type ChatLoadFailure = 'missing' | 'error'
+export const chatLoadFailures = writable<ReadonlyMap<string, ChatLoadFailure>>(new Map())
+
+function setChatLoadFailure(key: string, failure: ChatLoadFailure | null): void {
+    chatLoadFailures.update(failures => {
+        if ((failures.get(key) ?? null) === failure) return failures
+        const next = new Map(failures)
+        if (failure) next.set(key, failure)
+        else next.delete(key)
+        return next
+    })
+}
+
+/**
  * Hydrate a placeholder Chat in-place on the character's chats array.
  * If the slot is already a real Chat (not placeholder), returns it as-is.
  * Returns the hydrated Chat, or null if fetch failed.
@@ -157,10 +178,18 @@ export async function ensureChatHydrated(
 
     const promise = (async () => {
         hydrationInFlight.add(key)
+        setChatLoadFailure(key, null)
         try {
-            const full = await chatDeltaSync.fetchChat(chaId, index, chatId)
+            let full: Chat | null
+            try {
+                full = await chatDeltaSync.fetchChat(chaId, index, chatId)
+            } catch (error) {
+                setChatLoadFailure(key, 'error')
+                throw error
+            }
             if (!full) {
                 console.error(`[chatStorage] hydrate failed: chat not found on server (${key})`)
+                setChatLoadFailure(key, 'missing')
                 return null
             }
 
