@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { checkNullish, decryptBuffer, encryptBuffer, selectSingleFile } from '../util';
+import { checkNullish, decryptBuffer, encryptBuffer, parseToggleSyntax, selectSingleFile } from '../util';
 import { changeLanguage, language } from '../../lang';
 import { DEFAULT_CHAT_LOAD_ADDITIONAL_PAGES, DEFAULT_CHAT_LOAD_INITIAL_PAGES, normalizeChatLoadPages } from '../chatLoadPages';
 import type { RisuPlugin } from '../plugins/plugins.svelte';
@@ -735,6 +735,12 @@ export function setDatabase(data:Database){
     data.showPresetInSidebar ??= true
     data.showPersonaInSidebar ??= true
     data.nodeOnlyModelModeLock ??= 'none'
+    // The legacy lock has no setting any more (each binding slot picks a
+    // preset or a legacy model). A stored one is released: chats without a
+    // binding keep the global legacy models; chats bound before the lock go
+    // back to their binding. A 'preset' lock stays — it only lends the default
+    // binding to old chats that never got one.
+    if (data.nodeOnlyModelModeLock === 'legacy') data.nodeOnlyModelModeLock = 'none'
     data.moduleModelBindingsEnabled ??= false
     data.moduleModelBindings ??= {}
     data.disableMobileDragDrop ??= false
@@ -887,14 +893,15 @@ export function setCurrentChat(chat:Chat){
  * literals. Do NOT call for hydration placeholders or chats being restored with
  * their own mode.
  */
-export function newChatModelDefaults(): Partial<Pick<Chat, 'useModelPreset' | 'modelBinding' | 'memoryPresetId' | 'savedToggleValues'>> {
+export function newChatModelDefaults(): Partial<Pick<Chat, 'useModelPreset' | 'modelBinding' | 'memoryPresetId' | 'savedToggleValues' | 'savedToggleUnsetKeys'>> {
     const db = getDatabase()
     // New chats follow the character / global memory preset; chats without a
     // value are legacy and resolve from `supaMemory` instead (memoryPresets.ts).
     // A saved toggle default starts the chat pinned to those values.
-    const memory: Partial<Pick<Chat, 'memoryPresetId' | 'savedToggleValues'>> = { memoryPresetId: MEMORY_PRESET_DEFAULT }
+    const memory: Partial<Pick<Chat, 'memoryPresetId' | 'savedToggleValues' | 'savedToggleUnsetKeys'>> = { memoryPresetId: MEMORY_PRESET_DEFAULT }
     if (db.defaultToggleValues && !db.disableToggleBinding) {
         memory.savedToggleValues = structuredClone($state.snapshot(db.defaultToggleValues))
+        if (db.defaultToggleUnsetKeys) memory.savedToggleUnsetKeys = [...db.defaultToggleUnsetKeys]
     }
     if (!db.useModelPresetByDefault) return memory
     const def = db.defaultModelBinding
@@ -970,6 +977,19 @@ export function getToggleKeys(db:Database = getDatabase(), char:character = getC
     return parseToggleKeysFromTemplate(`${db.customPromptTemplateToggle ?? ''}\n${moduleToggleTemplate}`)
 }
 
+// For comparing only: a select bound to an unset value writes its first
+// option ('0') as soon as it renders, so unset cannot be told apart from '0'
+// there. Never written back — CBS reads unset as 'null', not '0'.
+export function getToggleUnsetValues(template:string):Record<string, string>{
+    const values:Record<string, string> = {}
+    for(const toggle of parseToggleSyntax(template)){
+        if(toggle.key && toggle.type === 'select'){
+            values[`toggle_${toggle.key}`] = '0'
+        }
+    }
+    return values
+}
+
 export function snapshotToggleValues(db:Database = getDatabase()):Record<string, string>{
     const values:Record<string, string> = {}
     for(const [key, value] of Object.entries(db.globalChatVariables)){
@@ -992,13 +1012,18 @@ export function snapshotCurrentToggleValues(db:Database = getDatabase()):Record<
     return values
 }
 
-export function applyToggleValues(values:Record<string, string>, db:Database = getDatabase()):void{
+// Toggles the values do not name: a toggle preset is applied as a whole and
+// clears them (default). A chat's pin clears only the keys it recorded as
+// unset (`unsetKeys`); any other key is a toggle added after the pin (a newly
+// imported preset or module) and keeps its value — clearing those on every
+// chat entry lost them.
+export function applyToggleValues(values:Record<string, string>, db:Database = getDatabase(), { unsetKeys }: { unsetKeys?: readonly string[] } = {}):void{
     const keys = getToggleKeys(db)
-    // Apply current preset's keys (reset if not in saved values)
+    const clear = unsetKeys ? new Set(unsetKeys) : null
     for(const key of keys){
         const value = values[key]
         if(value === undefined){
-            delete db.globalChatVariables[key]
+            if(!clear || clear.has(key)) delete db.globalChatVariables[key]
             continue
         }
         db.globalChatVariables[key] = value
@@ -1011,17 +1036,27 @@ export function applyToggleValues(values:Record<string, string>, db:Database = g
     }
 }
 
+// What a pin (or the default) records: the current toggle values, and the
+// current template's keys that are unset so loading the pin can clear them.
+export function snapshotToggleBinding(db:Database = getDatabase()):{ values: Record<string, string>, unsetKeys: string[] }{
+    const values = snapshotToggleValues(db)
+    const unsetKeys = getToggleKeys(db).filter((key) => values[key] === undefined)
+    return { values, unsetKeys }
+}
+
 export function saveTogglesToChat():void{
     if(getDatabase().disableToggleBinding) return
     const chat = getCurrentChat()
     if(!chat) return
-    chat.savedToggleValues = snapshotToggleValues()
+    const { values, unsetKeys } = snapshotToggleBinding()
+    chat.savedToggleValues = values
+    chat.savedToggleUnsetKeys = unsetKeys
 }
 
 export function loadTogglesFromChat(chat:Chat):void{
     if(getDatabase().disableToggleBinding) return
     if(!chat?.savedToggleValues) return
-    applyToggleValues(chat.savedToggleValues)
+    applyToggleValues(chat.savedToggleValues, getDatabase(), { unsetKeys: chat.savedToggleUnsetKeys ?? [] })
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -1501,6 +1536,8 @@ export interface Database{
     defaultModelBinding?: ModelBindingSet
     /** Toggle values (`toggle_*`) new chats start pinned to. Absent => new chats start unpinned as before. */
     defaultToggleValues?: Record<string, string>
+    /** Toggle keys that were unset when `defaultToggleValues` was saved (see `savedToggleUnsetKeys`). */
+    defaultToggleUnsetKeys?: string[]
     // Global model-mode lock. 'legacy'/'preset' force every chat into that
     // regime (the per-chat dropdown is hidden); 'none' lets each chat decide,
     // falling back to useModelPresetByDefault for chats that never chose. Read
@@ -2272,6 +2309,13 @@ export interface Chat{
     /** Memory preset id, 'off' or 'default' (inherit). Absent => derived from `supaMemory`. */
     memoryPresetId?: string
     savedToggleValues?: Record<string, string>
+    /**
+     * Toggle keys of the template that were unset when `savedToggleValues`
+     * was pinned; loading the pin clears them. Keys in neither (a toggle added
+     * after the pin) keep their current value. Absent on pins made before
+     * 1.14 — those leave every unnamed key as it is.
+     */
+    savedToggleUnsetKeys?: string[]
     // P4 dual-regime: per-chat model preset binding (plan v6 §7). useModelPreset
     // is the regime toggle; modelBinding (the bundle) persists across toggling so
     // it is restored on re-enable. Off (or absent) => classic global model path.

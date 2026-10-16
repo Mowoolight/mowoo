@@ -1614,6 +1614,13 @@ export const languageKorean = {
   modelPresetBindingSubUnset:
     "이 채팅에 바인딩된 보조 모델 프리셋이 없습니다. 전송하려면 바인딩하세요.",
   modelPresetBindingTitle: "모델/보조 모델 프리셋 바인딩",
+  modelBindingTitle: "모델 바인딩",
+  modelSlotLegacySection: "레거시 모델",
+  modelSlotLegacyGlobal: "레거시 · 전역 설정 따름",
+  modelSlotLegacyGlobalShort: "전역 설정 따름",
+  modelSlotPresetSection: "모델 프리셋",
+  modelSlotLegacyBadge: "레거시",
+  modelSlotLegacyGlobalHint: "전역 레거시 모델 (프롬프트 프리셋을 바꾸면 같이 바뀜):",
   useModelPresetBindingToggle: "모델 프리셋 바인딩 사용하기",
   modelPresetConfigure: "모델 프리셋 설정하기",
   modelPresetSetDefaultConfirm:

@@ -2,8 +2,11 @@
     import { DBState, settingsOpen, SettingsMenuIndex } from 'src/ts/stores.svelte';
     import { language } from "src/lang";
     import { notifySuccess } from "src/ts/alert";
-    import { ArrowLeft, CheckIcon, PinIcon, PinOffIcon, Settings, TriangleAlert } from "@lucide/svelte";
+    import { ArrowLeft, CheckIcon, HistoryIcon, PinIcon, PinOffIcon, Settings, TriangleAlert } from "@lucide/svelte";
     import ShButton from "./GUI/ShButton.svelte";
+    import ModelList from "./ModelList.svelte";
+    import { getModelInfo } from "src/ts/model/modellist";
+    import { LEGACY_SLOT, legacySlotValue, parseLegacySlot } from "src/ts/preset/types";
 
     interface Props {
         value?: string;
@@ -12,6 +15,9 @@
         blankLabel?: string;
         warnIfEmpty?: boolean;     // main/sub slots: empty = block, show warning
         disabled?: boolean;
+        // Chat binding slots may name a legacy model instead of a preset
+        // (`@legacy` / `@legacy:<model>`); module bindings may not.
+        allowLegacy?: boolean;
     }
 
     let {
@@ -21,18 +27,26 @@
         blankLabel,
         warnIfEmpty = false,
         disabled = false,
+        allowLegacy = false,
     }: Props = $props();
 
     let openOptions = $state(false);
+    // Legacy model lists run long (plugin providers add many), so legacy
+    // models get their own tab instead of sharing the preset list.
+    let activeTab = $state<'preset' | 'legacy'>('preset');
 
     let presets = $derived(DBState.db.modelPresets ?? []);
-    let bound = $derived(value ? (presets.find(p => p.id === value) ?? null) : null);
+    let legacy = $derived(allowLegacy ? parseLegacySlot(value) : null);
+    let bound = $derived(value && !legacy ? (presets.find(p => p.id === value) ?? null) : null);
     // value set but no matching preset → dangling (deleted). Treated as unset by
     // the resolver; surfaced here as a warning so the user can rebind.
-    let dangling = $derived(!!value && !bound);
+    let dangling = $derived(!!value && !bound && !legacy);
 
     let label = $derived(
-        bound ? bound.name
+        legacy ? (legacy.model
+            ? (getModelInfo(legacy.model)?.shortName || getModelInfo(legacy.model)?.name || legacy.model)
+            : language.modelSlotLegacyGlobalShort)
+        : bound ? bound.name
         : dangling ? language.modelPresetDeleted
         : blankable ? (blankLabel ?? language.useDefaultSubModel)
         : warnIfEmpty ? language.modelPresetUnset
@@ -44,8 +58,13 @@
         openOptions = false;
         onChange(id);
         // Toast only on binding a real preset, not on clearing to the blank
-        // ("use default sub model") option.
-        if (id) notifySuccess(language.modelPresetBindedSuccess);
+        // ("use default sub model") option or picking a legacy model.
+        if (id && !parseLegacySlot(id)) notifySuccess(language.modelPresetBindedSuccess);
+    }
+
+    function openPicker() {
+        activeTab = legacy ? 'legacy' : 'preset';
+        openOptions = true;
     }
 
     function goToPresetSettings() {
@@ -67,7 +86,7 @@
                 >
                     <ArrowLeft size={20} />
                 </button>
-                <h1 class="font-bold text-xl flex-1">{language.modelPresetMenu}</h1>
+                <h1 class="font-bold text-xl flex-1">{allowLegacy ? language.modelBindingTitle : language.modelPresetMenu}</h1>
             </div>
 
             <ShButton className="w-full mb-2" onclick={goToPresetSettings}>
@@ -76,6 +95,20 @@
             </ShButton>
             <div class="shrink-0 border-t-1 border-y-selected mb-2"></div>
 
+            {#if allowLegacy}
+                <div class="shrink-0 flex w-full rounded-md border border-selected mb-2">
+                    <button class="p-1.5 flex-1 text-sm" class:bg-selected={activeTab === 'preset'} onclick={() => { activeTab = 'preset' }}>{language.modelSlotPresetSection}</button>
+                    <button class="p-1.5 flex-1 text-sm" class:bg-selected={activeTab === 'legacy'} onclick={() => { activeTab = 'legacy' }}>{language.modelSlotLegacySection}</button>
+                </div>
+            {/if}
+
+            {#if allowLegacy && activeTab === 'legacy'}
+                <button class="shrink-0 w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:bg-selected rounded mb-1" class:bg-selected={value === LEGACY_SLOT} onclick={() => pick(LEGACY_SLOT)}>
+                    <span class="truncate flex-1">{language.modelSlotLegacyGlobal}</span>
+                    {#if value === LEGACY_SLOT}<CheckIcon size={14} class="shrink-0 text-primary" />{/if}
+                </button>
+                <ModelList embedded value={legacy?.model ?? ''} onChange={(model) => pick(legacySlotValue(model))} />
+            {:else}
             <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col">
                 {#if presets.length === 0}
                     <div class="px-3 py-4 text-sm text-textcolor2 text-center">{language.modelPresetEmpty}</div>
@@ -94,19 +127,23 @@
                     </button>
                 {/if}
             </div>
+            {/if}
         </div>
     </div>
 {/if}
 
 <ShButton
     className={`w-full min-w-0 justify-start${disabled ? ' opacity-50 pointer-events-none' : ''} ${
-        bound ? 'border-selected text-textcolor'
+        (bound || legacy) ? 'border-selected text-textcolor'
         : (dangling || (warnIfEmpty && !value)) ? 'border-amber-500 text-amber-500'
         : 'text-textcolor2 opacity-75 hover:opacity-100'
     }`}
-    onclick={() => { if (!disabled) { openOptions = true } }}
+    onclick={() => { if (!disabled) { openPicker() } }}
 >
-    {#if bound}
+    {#if legacy}
+        <HistoryIcon size={16} class="shrink-0" />
+        <span class="shrink-0 text-[10px] font-semibold px-1 rounded bg-selected">{language.modelSlotLegacyBadge}</span>
+    {:else if bound}
         <PinIcon size={16} class="shrink-0" />
     {:else if dangling || (warnIfEmpty && !value)}
         <TriangleAlert size={16} class="shrink-0" />
